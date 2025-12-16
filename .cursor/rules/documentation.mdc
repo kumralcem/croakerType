@@ -1,0 +1,51 @@
+---
+description: Documentation practices - how to maintain and reference project docs
+globs: "**/*.ts,**/*.tsx,**/*.md,**/*.rs"
+alwaysApply: true
+---
+
+# Documentation Practices
+
+## Project Documentation Structure
+
+This project maintains documentation in `docs/`:
+- `FEATURES.md` - Current capabilities and user flows
+- `ARCHITECTURE.md` - System design and component overview
+- `DATA_MODEL.md` - Database schema reference
+- `SECURITY.md` - Security considerations and checklist
+- `NEXT_STEPS.md` - Setup tasks and future enhancements
+
+## Before Making Changes
+
+1. **Read relevant docs first** - Before implementing features or making architectural changes, read the relevant documentation to understand existing patterns
+2. **Check ARCHITECTURE.md** - Understand the system design before adding components
+3. **Check DATA_MODEL.md** - Review schema before database changes
+4. **Check SECURITY.md** - Review auth patterns before adding endpoints
+
+## After Making Changes
+
+1. **Update docs when you**:
+   - Add new features → update FEATURES.md
+   - Change architecture → update ARCHITECTURE.md
+   - Modify schema → update DATA_MODEL.md
+   - Add API endpoints → document auth requirements
+   - Add setup steps → update NEXT_STEPS.md
+
+2. **Document decisions** - If you make a non-obvious choice, add a comment or doc note explaining why
+
+3. **Keep docs concise** - Avoid duplication; link to code when possible
+
+## Documentation Style
+
+- Use markdown with clear headings
+- Include code examples for complex patterns
+- Use tables for structured data (schema, config)
+- Keep bullet points brief and scannable
+- Add "Pre-release checklist" items for TODO items
+
+## Code Comments
+
+- Use `// TODO:` for future work
+- Use `// HACK:` for temporary workarounds
+- Use `// NOTE:` for non-obvious behavior
+- Mark test-only code with `// TODO: DISABLE BEFORE RELEASE`

@@ -1,0 +1,9 @@
+Clean up this speech-to-text transcription:
+- Fix obvious transcription errors (e.g., "there" vs "their", "to" vs "too")
+- Fix punctuation and capitalization
+- Remove filler words (um, uh, like, you know) only if they're clearly filler or unnecessarly repeated
+- Preserve the exact meaning and tone of the original speech
+- Do NOT change or censor any words - keep all profanity, slang, and informal language exactly as spoken
+- Do NOT rewrite or rephrase - only fix transcription mistakes
+
+Output only the cleaned text, nothing else.

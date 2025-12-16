@@ -1,0 +1,179 @@
+# croaker Setup Guide
+
+## Prerequisites
+
+### System Dependencies
+
+```bash
+# Fedora
+sudo dnf install pipewire-utils wl-clipboard
+
+# Ubuntu/Debian
+sudo apt install pipewire-utils wl-clipboard
+
+# Arch
+sudo pacman -S pipewire-utils wl-clipboard
+```
+
+### User Permissions
+
+Add your user to the `input` group (required for uinput and evdev):
+
+```bash
+sudo usermod -aG input $USER
+```
+
+**Important**: You must log out and back in for group membership to take effect.
+
+### Groq API Key
+
+1. Sign up at https://groq.com
+2. Get your API key from the dashboard
+3. Create the key file:
+
+```bash
+mkdir -p ~/.config/croaker
+echo "your-api-key-here" > ~/.config/croaker/groq.key
+chmod 600 ~/.config/croaker/groq.key
+```
+
+## Configuration
+
+### Basic Config
+
+Create `~/.config/croaker/config.toml`:
+
+```toml
+[general]
+language = "en"
+
+[hotkeys]
+push_to_talk_key = "RightAlt"
+push_to_talk_enabled = true
+toggle_shortcut = "Super+Shift+R"
+toggle_enabled = true
+
+[groq]
+key_file = "~/.config/croaker/groq.key"
+whisper_model = "whisper-large-v3-turbo"
+cleanup_enabled = true
+cleanup_model = "llama-3.3-70b-versatile"
+
+[overlay]
+enabled = true
+backend = "auto"
+```
+
+### Custom Cleanup Prompt
+
+Create `~/.config/croaker/prompts/default.txt`:
+
+```
+Clean up this speech-to-text transcription:
+- Fix punctuation and capitalization
+- Remove filler words (um, uh, like, you know)
+- Fix obvious transcription errors
+- Preserve meaning and tone
+
+Output only the cleaned text, nothing else.
+```
+
+## Running
+
+### Start Daemon
+
+```bash
+croaker serve
+```
+
+### Test Configuration
+
+```bash
+croaker configure
+```
+
+This will check:
+- API key file exists
+- User is in `input` group
+- Dependencies are installed
+
+### Control Daemon
+
+```bash
+# Toggle recording
+croaker toggle
+
+# Cancel current operation
+croaker cancel
+
+# Check status
+croaker status
+```
+
+## Troubleshooting
+
+### "Permission denied" when accessing /dev/uinput
+
+Make sure you're in the `input` group and have logged out/in:
+
+```bash
+groups | grep input
+```
+
+### "Daemon is not running"
+
+Start the daemon first:
+
+```bash
+croaker serve
+```
+
+### Portal shortcuts not working
+
+Make sure your compositor supports `org.freedesktop.portal.GlobalShortcuts`:
+- GNOME 45+
+- KDE Plasma
+- wlroots-based compositors (Hyprland, Sway)
+
+For older compositors, use push-to-talk mode instead.
+
+### Visual feedback not showing
+
+If notifications aren't appearing, check that your desktop environment's notification daemon is running. You can configure the overlay backend in your config file:
+- `notification`: Desktop notifications (default, works on all compositors)
+- `gtk`: Floating pulsing dot indicator with audio level visualization
+- `layer-shell`: Layer-shell overlay (wlroots compositors, requires feature flag)
+- `auto`: Automatically selects the best available backend
+
+### GNOME Text Insertion Issues
+
+**⚠️ GNOME Limitation**: GNOME doesn't support the virtual keyboard protocol, so automatic text insertion may fail. If you see a notification saying "Text ready! Press Ctrl+V to paste", the text is already in your clipboard - just paste manually.
+
+
+## Auto-start
+
+### systemd user service
+
+Create `~/.config/systemd/user/croaker.service`:
+
+```ini
+[Unit]
+Description=croaker speech-to-text daemon
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/croaker serve
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+Enable:
+
+```bash
+systemctl --user enable croaker
+systemctl --user start croaker
+```
+
