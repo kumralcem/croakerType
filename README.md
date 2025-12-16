@@ -136,7 +136,4 @@ The project compiles with some warnings (mostly unused imports and deprecated ma
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for system design details.
 
-## License
-
-MIT
 
