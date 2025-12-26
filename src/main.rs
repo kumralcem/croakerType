@@ -40,8 +40,7 @@ enum Commands {
     Configure,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
@@ -50,39 +49,114 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Serve => {
-            serve().await?;
+            serve()?;
         }
         Commands::Toggle => {
-            send_command("toggle").await?;
+            tokio::runtime::Runtime::new()?.block_on(send_command("toggle"))?;
         }
         Commands::Cancel => {
-            send_command("cancel").await?;
+            tokio::runtime::Runtime::new()?.block_on(send_command("cancel"))?;
         }
         Commands::Status => {
-            let status = send_command("status").await?;
+            let status = tokio::runtime::Runtime::new()?.block_on(send_command("status"))?;
             println!("{}", status);
         }
         Commands::ToggleOutputMode => {
-            send_command("toggle-output-mode").await?;
+            tokio::runtime::Runtime::new()?.block_on(send_command("toggle-output-mode"))?;
         }
         Commands::ToggleLanguage => {
-            send_command("toggle-language").await?;
+            tokio::runtime::Runtime::new()?.block_on(send_command("toggle-language"))?;
         }
         Commands::Configure => {
-            configure().await?;
+            tokio::runtime::Runtime::new()?.block_on(configure())?;
         }
     }
 
     Ok(())
 }
 
-async fn serve() -> anyhow::Result<()> {
+fn serve() -> anyhow::Result<()> {
     tracing::info!("Starting croaker daemon");
 
     // Load config
     let config = Config::load()?;
-    tracing::info!("DEBUG: Config loaded, push_to_talk_enabled: {}", config.hotkeys.push_to_talk_enabled);
+    tracing::info!("Config loaded, push_to_talk_enabled: {}", config.hotkeys.push_to_talk_enabled);
 
+    let backend = config.overlay.backend.clone();
+    let overlay_enabled = config.overlay.enabled;
+    
+    // Create message channel for overlay/tray
+    let (overlay_tx, overlay_rx) = std::sync::mpsc::channel::<crate::overlay::OverlayMessage>();
+    
+    // Spawn the daemon logic in a background thread with its own tokio runtime
+    let config_clone = config.clone();
+    let overlay_tx_clone = overlay_tx.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+        rt.block_on(async move {
+            if let Err(e) = run_daemon(config_clone, overlay_tx_clone).await {
+                tracing::error!("Daemon error: {}", e);
+            }
+        });
+    });
+    
+    // Run tray/overlay on main thread
+    if overlay_enabled && (backend == "tray" || backend == "auto") {
+        tracing::info!("Starting system tray");
+        if let Err(e) = overlay::run_tray(overlay_rx) {
+            tracing::error!("Tray error: {}", e);
+        }
+    } else if overlay_enabled && backend == "notification" {
+        // For notification backend, process messages in a loop
+        match create_overlay(&backend) {
+            Ok(overlay) => {
+                tracing::info!("Overlay initialized with backend: {}", backend);
+                while let Ok(msg) = overlay_rx.recv() {
+                    match msg {
+                        crate::overlay::OverlayMessage::State(state) => {
+                            overlay.update_state(state);
+                            match state {
+                                DaemonState::Idle => overlay.hide(),
+                                _ => overlay.show(),
+                            }
+                        }
+                        crate::overlay::OverlayMessage::OutputMode(mode) => {
+                            overlay.update_output_mode(&mode);
+                        }
+                        crate::overlay::OverlayMessage::Language(lang) => {
+                            overlay.update_language(&lang);
+                        }
+                        crate::overlay::OverlayMessage::AudioLevel(level) => {
+                            overlay.update_audio_level(level);
+                        }
+                        crate::overlay::OverlayMessage::Show => {
+                            overlay.show();
+                        }
+                        crate::overlay::OverlayMessage::Hide => {
+                            overlay.hide();
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize overlay: {} (overlay disabled)", e);
+                // Block main thread forever
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                }
+            }
+        }
+    } else {
+        // No overlay/tray, just block main thread
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_daemon(config: Config, overlay_tx: std::sync::mpsc::Sender<crate::overlay::OverlayMessage>) -> anyhow::Result<()> {
     // Create state machine
     let mut state_machine = StateMachine::new(config.clone())?;
     let event_tx = state_machine.event_sender();
@@ -90,44 +164,18 @@ async fn serve() -> anyhow::Result<()> {
     // Create socket server and state update channel
     let (mut socket_server, state_tx) = SocketServer::new(event_tx.clone());
     
-    // Initialize overlay if enabled
-    let overlay_tx = if config.overlay.enabled {
-        let backend = config.overlay.backend.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
-        
-        // Spawn overlay handler in a regular thread (GTK needs its own thread)
-        std::thread::spawn(move || {
-            // Create overlay in this thread
-            match create_overlay(&backend) {
-                Ok(overlay) => {
-                    tracing::info!("Overlay initialized with backend: {}", backend);
-                    let overlay = std::sync::Arc::new(std::sync::Mutex::new(overlay));
-                    while let Ok(state) = rx.recv() {
-                        if let Ok(overlay) = overlay.lock() {
-                            overlay.update_state(state);
-                            match state {
-                                DaemonState::Idle => overlay.hide(),
-                                _ => overlay.show(),
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to initialize overlay: {} (overlay disabled)", e);
-                }
-            }
-        });
-        
-        Some(tx)
-    } else {
-        None
-    };
-    
     // Connect state updates
     state_machine.set_state_sender(state_tx);
-    if let Some(ref overlay_tx) = overlay_tx {
-        state_machine.set_overlay_sender(overlay_tx.clone());
-    }
+    state_machine.set_overlay_sender(overlay_tx.clone());
+    
+    // Send initial mode and language to overlay
+    let initial_mode = match config.output.output_mode {
+        crate::config::OutputMode::Direct => "Direct",
+        crate::config::OutputMode::Clipboard => "Clipboard",
+        crate::config::OutputMode::Both => "Both",
+    };
+    let _ = overlay_tx.send(crate::overlay::OverlayMessage::OutputMode(initial_mode.to_string()));
+    let _ = overlay_tx.send(crate::overlay::OverlayMessage::Language(config.general.language.clone()));
 
     // Spawn state machine task
     let state_machine_task = tokio::spawn(async move {
@@ -144,12 +192,10 @@ async fn serve() -> anyhow::Result<()> {
     });
 
     // Spawn evdev push-to-talk monitor (if enabled)
-    tracing::info!("DEBUG: push_to_talk_enabled: {}", config.hotkeys.push_to_talk_enabled);
-    let evdev_task = if config.hotkeys.push_to_talk_enabled {
-        tracing::info!("DEBUG: Creating evdev task");
+    if config.hotkeys.push_to_talk_enabled {
         let event_tx_evdev = event_tx.clone();
         let config_evdev = config.clone();
-        Some(tokio::spawn(async move {
+        tokio::spawn(async move {
             match EvdevMonitor::new(&config_evdev, event_tx_evdev) {
                 Ok(mut monitor) => {
                     tracing::info!("Starting evdev push-to-talk monitor");
@@ -162,33 +208,27 @@ async fn serve() -> anyhow::Result<()> {
                     tracing::warn!("Make sure you're in the 'input' group and have keyboard access");
                 }
             }
-        }))
-    } else {
-        None
-    };
+        });
+    }
 
     // Spawn portal shortcuts monitor (if enabled)
-    let portal_task = if config.hotkeys.toggle_enabled {
+    if config.hotkeys.toggle_enabled {
         let event_tx_portal = event_tx.clone();
         let config_portal = config.clone();
-        Some(tokio::spawn(async move {
+        tokio::spawn(async move {
             match PortalMonitor::new(&config_portal, event_tx_portal).await {
                 Ok(mut monitor) => {
                     tracing::info!("Starting portal shortcuts monitor");
                     if let Err(e) = monitor.register_shortcuts().await {
                         tracing::warn!("Portal monitor error: {} (portal shortcuts disabled, push-to-talk still works)", e);
-                        tracing::warn!("Portal shortcuts may not be supported on your compositor or may require additional configuration");
                     }
                 }
                 Err(e) => {
                     tracing::warn!("Failed to start portal monitor: {}", e);
-                    tracing::warn!("Portal shortcuts may not be supported on your compositor");
                 }
             }
-        }))
-    } else {
-        None
-    };
+        });
+    }
 
     tracing::info!("Daemon started. Hotkeys are active.");
     tracing::info!("Push-to-talk: {} (key: {})", 
@@ -197,19 +237,6 @@ async fn serve() -> anyhow::Result<()> {
     tracing::info!("Toggle shortcut: {} (shortcut: {})",
         if config.hotkeys.toggle_enabled { "enabled" } else { "disabled" },
         config.hotkeys.toggle_shortcut);
-
-    // Spawn evdev and portal tasks independently (don't wait for them in select!)
-    // They can fail without stopping the daemon
-    if let Some(task) = evdev_task {
-        tokio::spawn(async move {
-            let _ = task.await;
-        });
-    }
-    if let Some(task) = portal_task {
-        tokio::spawn(async move {
-            let _ = task.await;
-        });
-    }
 
     // Wait for core tasks (state machine and socket server)
     tokio::select! {

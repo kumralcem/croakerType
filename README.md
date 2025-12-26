@@ -18,8 +18,8 @@ Speech-to-text daemon for Linux/Wayland that captures audio, transcribes via Gro
   - **Non-ASCII fallback**: `wl-copy` + synthetic Ctrl+V
 
 - **Visual feedback:**
-  - Default: Desktop notifications showing recording/processing state
-  - Optional: Pulsing dot overlay with audio level visualization (GTK backend)
+  - Default: System tray icon that changes color based on state (grey=idle, red=recording, orange=processing, green=done)
+  - Optional: Desktop notifications (notification backend)
   - Works across all desktop environments (GNOME, KDE, Hyprland)
 
 - **Output modes:**
@@ -31,7 +31,7 @@ Speech-to-text daemon for Linux/Wayland that captures audio, transcribes via Gro
 - **Multi-language support:**
   - Configure multiple languages in config (default includes English, Turkish, Spanish, French, German)
   - Toggle between languages at runtime with `Shift+RightAlt+L` or `croaker toggle-language`
-  - Visual notification shows current language
+  - Tray tooltip shows current language
   - Selected language is used for next transcription
 
 ## Installation
@@ -40,13 +40,13 @@ Speech-to-text daemon for Linux/Wayland that captures audio, transcribes via Gro
 
 ```bash
 # Fedora
-sudo dnf install pipewire-utils wl-clipboard openssl-devel gtk4-devel glib2-devel
+sudo dnf install pipewire-utils wl-clipboard openssl-devel
 
 # Ubuntu/Debian
-sudo apt install pipewire-utils wl-clipboard libssl-dev libgtk-4-dev libglib2.0-dev
+sudo apt install pipewire-utils wl-clipboard libssl-dev
 
 # Arch
-sudo pacman -S pipewire-utils wl-clipboard openssl gtk4 glib2
+sudo pacman -S pipewire-utils wl-clipboard openssl
 
 # Add user to input group (required for uinput and evdev)
 sudo usermod -aG input $USER
@@ -111,10 +111,7 @@ output_mode = "both"
 
 [overlay]
 enabled = true
-backend = "notification"  # Options: "notification" (default), "gtk" (pulsing dot), "layer-shell", "auto"
-position = "top-center"
-size = 48
-opacity = 0.9
+backend = "tray"  # Options: "tray" (default, system tray icon), "notification" (desktop notifications)
 ```
 
 Create `~/.config/croaker/groq.key` with your Groq API key:
@@ -158,12 +155,16 @@ croaker configure  # Interactive setup wizard
 
 ### Visual Feedback
 
-croaker provides visual feedback via overlay backends:
+croaker provides visual feedback via the system tray:
 
-- **`notification`** (default): Desktop notifications showing state (Recording, Processing, Outputting). Works on all compositors.
-- **`gtk`**: Floating pulsing dot indicator with audio level visualization. Shows a colored dot that pulses with audio input during recording. Works on GNOME and other GTK-based environments.
-- **`layer-shell`**: Layer-shell overlay for wlroots compositors (Hyprland, Sway). Requires feature flag.
-- **`auto`**: Automatically selects the best available backend.
+- **`tray`** (default): System tray icon that changes color based on state:
+  - Grey: Idle (ready to record)
+  - Red: Recording
+  - Orange: Processing
+  - Green: Done/Outputting
+  - Tooltip shows current mode and language
+  - Right-click menu shows status and quit option
+- **`notification`**: Desktop notifications showing state (Recording, Processing, Outputting). Works on all compositors but can clutter notification history.
 
 Configure via `overlay.backend` in your config file.
 
@@ -174,5 +175,4 @@ The project compiles with some warnings (mostly unused imports and deprecated ma
 ## Architecture
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for system design details.
-
 

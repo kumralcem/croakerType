@@ -51,7 +51,7 @@ pub struct StateMachine {
     cleanup_client: CleanupClient,
     keyboard: Arc<UinputKeyboard>,
     clipboard: ClipboardOutput,
-    overlay_tx: Option<std::sync::mpsc::Sender<DaemonState>>,
+    overlay_tx: Option<std::sync::mpsc::Sender<crate::overlay::OverlayMessage>>,
     event_tx: mpsc::Sender<StateEvent>,
     event_rx: mpsc::Receiver<StateEvent>,
     state_tx: Option<mpsc::Sender<DaemonState>>,
@@ -101,7 +101,7 @@ impl StateMachine {
         self.state_tx = Some(state_tx);
     }
 
-    pub fn set_overlay_sender(&mut self, overlay_tx: std::sync::mpsc::Sender<DaemonState>) {
+    pub fn set_overlay_sender(&mut self, overlay_tx: std::sync::mpsc::Sender<crate::overlay::OverlayMessage>) {
         self.overlay_tx = Some(overlay_tx);
     }
 
@@ -121,7 +121,7 @@ impl StateMachine {
         
         // Update overlay via channel
         if let Some(ref overlay_tx) = self.overlay_tx {
-            let _ = overlay_tx.send(self.state);
+            let _ = overlay_tx.send(crate::overlay::OverlayMessage::State(self.state));
         }
     }
 
@@ -149,6 +149,14 @@ impl StateMachine {
             }
             (_, StateEvent::ToggleLanguage) => {
                 self.toggle_language().await?;
+            }
+            // Ignore StartRecording/StopRecording when processing - user might press key while processing
+            (DaemonState::Processing, StateEvent::StartRecording) |
+            (DaemonState::Processing, StateEvent::StopRecording) |
+            (DaemonState::Outputting, StateEvent::StartRecording) |
+            (DaemonState::Outputting, StateEvent::StopRecording) => {
+                tracing::debug!("Ignoring key event while {:?} - user pressed key during processing", self.state);
+                // Don't error - just ignore it
             }
             _ => {
                 tracing::warn!("Invalid state transition: {:?} -> {:?}", self.state, event);
@@ -299,7 +307,12 @@ impl StateMachine {
         };
         
         tracing::info!("Output mode changed to: {}", mode_str);
-        self.show_notification(&format!("Output Mode: {}", mode_str));
+        
+        // Update overlay (overlay handles the visual feedback)
+        if let Some(ref overlay_tx) = self.overlay_tx {
+            let _ = overlay_tx.send(crate::overlay::OverlayMessage::OutputMode(mode_str.to_string()));
+        }
+        
         Ok(())
     }
 
@@ -314,17 +327,13 @@ impl StateMachine {
         let new_language = &self.config.general.languages[self.current_language_index];
         
         tracing::info!("Language changed to: {}", new_language);
-        self.show_notification(&format!("Language: {}", new_language.to_uppercase()));
+        
+        // Update overlay (overlay handles the visual feedback)
+        if let Some(ref overlay_tx) = self.overlay_tx {
+            let _ = overlay_tx.send(crate::overlay::OverlayMessage::Language(new_language.clone()));
+        }
+        
         Ok(())
-    }
-
-    fn show_notification(&self, message: &str) {
-        // Use notify-send or similar to show notification
-        let _ = std::process::Command::new("notify-send")
-            .arg("croaker")
-            .arg(message)
-            .arg("--expire-time=2000")
-            .spawn();
     }
 
     async fn cancel(&mut self) -> Result<(), StateError> {

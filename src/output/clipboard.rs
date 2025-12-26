@@ -93,33 +93,56 @@ impl ClipboardOutput {
                 Ok(output) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     tracing::warn!("wtype failed: {}", stderr);
-                    if stderr.contains("virtual keyboard protocol") {
-                        tracing::warn!("GNOME doesn't support virtual keyboard protocol. Trying uinput Ctrl+V as fallback...");
+                    if stderr.contains("virtual keyboard protocol") || stderr.contains("not support") {
+                        tracing::warn!("Compositor doesn't support virtual keyboard protocol (KDE/GNOME limitation). Trying uinput Ctrl+V as fallback...");
                         // Try uinput anyway - sometimes Ctrl+V works even if typing doesn't
                         if let Err(e) = self.keyboard.send_paste().await {
                             tracing::warn!("uinput Ctrl+V also failed: {}. Text is in clipboard - paste manually with Ctrl+V", e);
                             // Send a notification to remind user to paste
                             let _ = TokioCommand::new("notify-send")
-                                .args(&["--app-name=croaker", "--urgency=normal", "croaker", "Text ready! Press Ctrl+V to paste."])
+                                .args(&["--app-name=croaker", "--urgency=normal", "--expire-time=3000", "croaker", "Text ready! Press Ctrl+V to paste."])
                                 .output()
                                 .await;
+                            // Don't error - text is in clipboard, user can paste manually
+                            return Ok(());
                         } else {
                             tracing::info!("uinput Ctrl+V sent successfully");
                         }
                     } else {
                         tracing::warn!("wtype failed, trying uinput fallback");
-                        self.keyboard.send_paste().await?;
+                        if let Err(e) = self.keyboard.send_paste().await {
+                            tracing::warn!("uinput fallback also failed: {}. Text is in clipboard.", e);
+                            let _ = TokioCommand::new("notify-send")
+                                .args(&["--app-name=croaker", "--urgency=normal", "--expire-time=3000", "croaker", "Text ready! Press Ctrl+V to paste."])
+                                .output()
+                                .await;
+                            return Ok(());
+                        }
                     }
                 }
                 Err(_) => {
                     tracing::warn!("wtype not found, trying uinput fallback");
-                    self.keyboard.send_paste().await?;
+                    if let Err(e) = self.keyboard.send_paste().await {
+                        tracing::warn!("uinput fallback also failed: {}. Text is in clipboard.", e);
+                        let _ = TokioCommand::new("notify-send")
+                            .args(&["--app-name=croaker", "--urgency=normal", "--expire-time=3000", "croaker", "Text ready! Press Ctrl+V to paste."])
+                            .output()
+                            .await;
+                        return Ok(());
+                    }
                 }
             }
         } else {
             // Use uinput on X11
             tracing::debug!("Sending Ctrl+V via uinput (X11)");
-            self.keyboard.send_paste().await?;
+            if let Err(e) = self.keyboard.send_paste().await {
+                tracing::warn!("uinput failed: {}. Text is in clipboard.", e);
+                let _ = TokioCommand::new("notify-send")
+                    .args(&["--app-name=croaker", "--urgency=normal", "--expire-time=3000", "croaker", "Text ready! Press Ctrl+V to paste."])
+                    .output()
+                    .await;
+                return Ok(());
+            }
         }
         
         // Give the paste time to complete
@@ -180,32 +203,54 @@ impl ClipboardOutput {
                 Ok(output) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     tracing::warn!("wtype failed: {}", stderr);
-                    if stderr.contains("virtual keyboard protocol") {
-                        tracing::warn!("GNOME doesn't support virtual keyboard protocol. Trying uinput Ctrl+V as fallback...");
+                    if stderr.contains("virtual keyboard protocol") || stderr.contains("not support") {
+                        tracing::warn!("Compositor doesn't support virtual keyboard protocol (KDE/GNOME limitation). Trying uinput Ctrl+V as fallback...");
                         if let Err(e) = self.keyboard.send_paste().await {
                             tracing::warn!("uinput Ctrl+V also failed: {}. Text is in clipboard - paste manually with Ctrl+V", e);
                             // Send a notification to remind user to paste
                             let _ = TokioCommand::new("notify-send")
-                                .args(&["--app-name=croaker", "--urgency=normal", "croaker", "Text ready! Press Ctrl+V to paste."])
+                                .args(&["--app-name=croaker", "--urgency=normal", "--expire-time=3000", "croaker", "Text ready! Press Ctrl+V to paste."])
                                 .output()
                                 .await;
+                            return Ok(());
                         } else {
                             tracing::info!("uinput Ctrl+V sent successfully");
                         }
                     } else {
                         tracing::warn!("wtype failed, trying uinput fallback");
-                        self.keyboard.send_paste().await?;
+                        if let Err(e) = self.keyboard.send_paste().await {
+                            tracing::warn!("uinput fallback also failed: {}. Text is in clipboard.", e);
+                            let _ = TokioCommand::new("notify-send")
+                                .args(&["--app-name=croaker", "--urgency=normal", "--expire-time=3000", "croaker", "Text ready! Press Ctrl+V to paste."])
+                                .output()
+                                .await;
+                            return Ok(());
+                        }
                     }
                 }
                 Err(_) => {
                     tracing::warn!("wtype not found, trying uinput fallback");
-                    self.keyboard.send_paste().await?;
+                    if let Err(e) = self.keyboard.send_paste().await {
+                        tracing::warn!("uinput fallback also failed: {}. Text is in clipboard.", e);
+                        let _ = TokioCommand::new("notify-send")
+                            .args(&["--app-name=croaker", "--urgency=normal", "--expire-time=3000", "croaker", "Text ready! Press Ctrl+V to paste."])
+                            .output()
+                            .await;
+                        return Ok(());
+                    }
                 }
             }
         } else {
             // Use uinput on X11
             tracing::debug!("Sending Ctrl+V via uinput (X11)");
-            self.keyboard.send_paste().await?;
+            if let Err(e) = self.keyboard.send_paste().await {
+                tracing::warn!("uinput failed: {}. Text is in clipboard.", e);
+                let _ = TokioCommand::new("notify-send")
+                    .args(&["--app-name=croaker", "--urgency=normal", "--expire-time=3000", "croaker", "Text ready! Press Ctrl+V to paste."])
+                    .output()
+                    .await;
+                return Ok(());
+            }
         }
         
         // Give the paste time to complete

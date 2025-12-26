@@ -194,7 +194,7 @@ pub struct OverlayConfig {
 }
 
 fn default_backend() -> String {
-    "notification".to_string()
+    "tray".to_string()
 }
 
 fn default_position() -> String {
@@ -377,16 +377,12 @@ clipboard_restore = false
 output_mode = "both"
 
 [overlay]
-# Enable visual overlay
+# Enable visual feedback
 enabled = true
-# Overlay backend: "notification" (default, desktop notifications), "gtk" (pulsing dot), "layer-shell", or "auto"
-backend = "notification"
-# Overlay position: "top-center", "top-left", "top-right", "bottom-center", etc.
-position = "top-center"
-# Overlay size in pixels
-size = 48
-# Overlay opacity (0.0 to 1.0)
-opacity = 0.9
+# Feedback backend: "tray" (system tray icon - default), "notification" (desktop notifications)
+# "tray" shows a colored icon in your system tray that changes based on state
+# "notification" shows desktop notifications for each state change
+backend = "tray"
 "#;
 
         fs::write(config_path, default_config)

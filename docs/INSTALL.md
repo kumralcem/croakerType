@@ -240,11 +240,11 @@ For older compositors, use push-to-talk mode instead.
 
 ### Visual feedback not showing
 
-If notifications aren't appearing, check that your desktop environment's notification daemon is running. You can configure the overlay backend in `~/.config/croaker/config.toml`:
-- `"notification"`: Desktop notifications (default, works on all compositors)
-- `"gtk"`: Floating pulsing dot indicator with audio level visualization
-- `"layer-shell"`: Layer-shell overlay (wlroots compositors, requires feature flag)
-- `"auto"`: Automatically selects the best available backend
+If the system tray icon isn't appearing, you can configure the overlay backend in `~/.config/croaker/config.toml`:
+- `"tray"` (default): System tray icon that changes color based on state (grey=idle, red=recording, orange=processing, green=done)
+- `"notification"`: Desktop notifications
+
+Note: Make sure your desktop environment supports the StatusNotifierItem protocol (most modern DEs like KDE, GNOME with extensions, XFCE do).
 
 ### Keyboard Device Detection Issues
 
@@ -304,7 +304,7 @@ For older compositors, use push-to-talk mode instead.
 
    **Workaround**: When you see the "Text ready! Press Ctrl+V to paste" notification, manually paste with Ctrl+V. The text is already in your clipboard.
 
-2. **Visual Feedback**: croaker shows visual feedback via desktop notifications, displaying the current state (Recording, Processing, Outputting). This works on all compositors (GNOME, KDE, Hyprland).
+2. **Visual Feedback**: croaker shows visual feedback via system tray icon (default) or desktop notifications, displaying the current state through color changes (grey=idle, red=recording, orange=processing, green=done).
 
 **KDE and Hyprland users**: Text insertion works automatically without manual intervention, as these compositors properly support the virtual keyboard protocol.
 

@@ -71,7 +71,7 @@ output_mode = "both"
 
 [overlay]
 enabled = true
-backend = "auto"
+backend = "tray"  # Options: "tray" (default, system tray icon), "notification"
 ```
 
 ### Custom Cleanup Prompt
@@ -186,11 +186,9 @@ For older compositors, use push-to-talk mode instead.
 
 ### Visual feedback not showing
 
-If notifications aren't appearing, check that your desktop environment's notification daemon is running. You can configure the overlay backend in your config file:
-- `notification`: Desktop notifications (default, works on all compositors)
-- `gtk`: Floating pulsing dot indicator with audio level visualization
-- `layer-shell`: Layer-shell overlay (wlroots compositors, requires feature flag)
-- `auto`: Automatically selects the best available backend
+If the system tray icon isn't appearing, check that your desktop environment supports the StatusNotifierItem protocol. You can configure the feedback backend in your config file:
+- `tray` (default): System tray icon that changes color based on state (grey=idle, red=recording, orange=processing, green=done). Portable across Linux DEs.
+- `notification`: Desktop notifications (may clutter notification history)
 
 ### GNOME Text Insertion Issues
 

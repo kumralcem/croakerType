@@ -81,16 +81,17 @@ Text insertion strategy varies by compositor and output mode:
    - Sends Ctrl+V via uinput (or `wtype` on Wayland)
    - Restores original clipboard (if enabled)
 
-### Overlay
+### Visual Feedback
 
 Visual feedback showing recording/processing state:
-- **D-Bus Notifications** (default): Uses `notify-send` to display state messages
-  - Works on all compositors (GNOME, KDE, Hyprland)
+- **System Tray** (default): Uses StatusNotifierItem D-Bus protocol
+  - Shows colored icon based on state (grey=idle, red=recording, orange=processing, green=done)
+  - Tooltip displays current mode and language
+  - Right-click menu shows status and quit option
+  - Portable across Linux DEs (KDE, GNOME with extensions, XFCE, etc.)
+- **D-Bus Notifications**: Uses `notify-send` to display state messages
+  - Works on all compositors
   - Shows recording/processing/outputting states
-- **GTK4 Window**: Floating undecorated window with pulsing dot indicator
-  - Shows colored dot (red=recording, yellow=processing, green=outputting)
-  - Dot outline pulses with audio input level during recording
-- **Layer-shell**: For wlroots compositors (optional feature)
 
 ## Data Flow
 
@@ -122,11 +123,11 @@ State Machine (outputting → idle)
 
 ## Threading Model
 
-- Main daemon runs in tokio async runtime
-- State machine runs in separate task
-- Socket server runs in separate task
-- Input monitors (evdev, portal) run in separate tasks
-- Overlay runs in GTK main thread (separate OS thread)
+- Main thread runs system tray (blocking message loop)
+- Daemon runs in separate thread with its own tokio async runtime
+- State machine runs in separate tokio task
+- Socket server runs in separate tokio task
+- Input monitors (evdev, portal) run in separate tokio tasks
 
 ## Configuration
 

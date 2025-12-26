@@ -1,56 +1,46 @@
-pub mod gtk_window;
-pub mod layer_shell;
 pub mod notification;
+pub mod tray;
 
 use crate::daemon::state::DaemonState;
 use thiserror::Error;
 
+#[derive(Debug, Clone)]
+pub enum OverlayMessage {
+    State(DaemonState),
+    OutputMode(String),
+    Language(String),
+    AudioLevel(f32),
+    Show,
+    Hide,
+}
+
 #[derive(Debug, Error)]
 pub enum OverlayError {
-    #[error("GTK error: {0}")]
-    GtkError(String),
+    #[error("Overlay error: {0}")]
+    Error(String),
     #[error("Failed to initialize overlay")]
     InitError,
 }
 
-pub trait Overlay {
+pub trait Overlay: Send {
     fn update_state(&self, state: DaemonState);
     fn update_audio_level(&self, level: f32);
+    fn update_output_mode(&self, mode: &str);
+    fn update_language(&self, language: &str);
     fn show(&self);
     fn hide(&self);
 }
 
 pub fn create_overlay(backend: &str) -> Result<Box<dyn Overlay>, OverlayError> {
     match backend {
-        "layer-shell" => {
-            #[cfg(feature = "layer-shell")]
-            {
-                layer_shell::LayerShellOverlay::new()
-                    .map(|o| Box::new(o) as Box<dyn Overlay>)
-            }
-            #[cfg(not(feature = "layer-shell"))]
-            {
-                tracing::warn!("layer-shell feature not enabled, falling back to GTK");
-                gtk_window::GtkOverlay::new().map(|o| Box::new(o) as Box<dyn Overlay>)
-            }
-        }
-        "gtk" => {
-            gtk_window::GtkOverlay::new().map(|o| Box::new(o) as Box<dyn Overlay>)
-        }
         "notification" => {
             notification::NotificationOverlay::new().map(|o| Box::new(o) as Box<dyn Overlay>)
-        }
-        "auto" => {
-            // Try layer-shell first, fallback to GTK
-            #[cfg(feature = "layer-shell")]
-            {
-                if let Ok(overlay) = layer_shell::LayerShellOverlay::new() {
-                    return Ok(Box::new(overlay) as Box<dyn Overlay>);
-                }
-            }
-            gtk_window::GtkOverlay::new().map(|o| Box::new(o) as Box<dyn Overlay>)
         }
         _ => Err(OverlayError::InitError),
     }
 }
 
+/// Run the system tray - this blocks and processes messages
+pub fn run_tray(message_rx: std::sync::mpsc::Receiver<OverlayMessage>) -> anyhow::Result<()> {
+    tray::run_tray(message_rx)
+}
