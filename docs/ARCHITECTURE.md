@@ -47,39 +47,20 @@ Uses `pw-record` (PipeWire) to capture audio:
 
 ### Text Output
 
-Text insertion strategy varies by compositor and output mode:
+**Important**: croaker copies transcribed text to your clipboard. Automatic pasting is unreliable across all platforms.
 
 **Output Modes:**
-- **`direct`**: Types text directly at cursor position (may fallback to clipboard on Wayland)
-- **`clipboard`**: Only copies text to clipboard (no automatic paste)
-- **`both`**: Copies to clipboard AND tries to paste/type automatically
+- **`direct`**: Attempts to type text directly (often fails - falls back to clipboard)
+- **`clipboard`**: Only copies text to clipboard (recommended - user pastes manually with Ctrl+V)
+- **`both`**: Copies to clipboard AND attempts automatic paste (may fail - clipboard is reliable)
 
-**Compositor-specific behavior:**
-
-1. **Wayland (KDE/Hyprland)**: Uses `wtype` for reliable automatic text insertion
-   - These compositors support the virtual keyboard protocol
-   - Works seamlessly without user intervention
-   - In `both` mode, uses `wtype` to paste after copying to clipboard
-
-2. **Wayland (GNOME)**: ⚠️ Limited support
-   - GNOME doesn't support virtual keyboard protocol
-   - Tries `wtype` first (fails)
-   - Falls back to uinput Ctrl+V (may work, but unreliable)
-   - If both fail, sends notification asking user to paste manually
-   - Text is already in clipboard, user just needs to press Ctrl+V
-   - In `clipboard` mode, only copies to clipboard (no paste attempt)
-
-3. **X11**: Uses `/dev/uinput` virtual keyboard
-   - Maps ASCII characters to Linux keycodes
-   - Handles shift modifier for uppercase/symbols
-   - Configurable delay between keystrokes
-   - In `both` mode, tries direct typing first, falls back to clipboard paste if needed
-
-4. **Clipboard Fallback**: For non-ASCII characters or when direct typing fails
-   - Saves current clipboard (if restore enabled)
-   - Copies text to clipboard via `wl-copy`
-   - Sends Ctrl+V via uinput (or `wtype` on Wayland)
-   - Restores original clipboard (if enabled)
+**How it works:**
+- Text is always copied to clipboard using `wl-copy` (Wayland clipboard utility)
+- The daemon may attempt automatic pasting using `wtype` (Wayland) or `/dev/uinput` (X11), but this often fails due to:
+  - Security policies preventing apps from simulating keyboard input
+  - Compositor limitations (GNOME doesn't support virtual keyboard protocol)
+  - Application focus issues
+- **Recommended workflow**: Use "clipboard" mode and paste manually with Ctrl+V
 
 ### Visual Feedback
 

@@ -293,20 +293,16 @@ Portal shortcuts require:
 
 For older compositors, use push-to-talk mode instead.
 
-### GNOME-Specific Issues
+### Text Output Behavior
 
-**⚠️ Important**: GNOME has limitations that affect croaker:
+**Important**: croaker copies transcribed text to your clipboard. Automatic pasting is unreliable across all platforms, so you should paste manually with Ctrl+V.
 
-1. **Text Insertion**: GNOME doesn't support the virtual keyboard protocol, so automatic text insertion may fail. The daemon will:
-   - Try `wtype` first (will fail on GNOME)
-   - Fall back to uinput Ctrl+V (may work, but unreliable)
-   - If both fail, send a notification asking you to paste manually with Ctrl+V
+**How it works:**
+- Text is always copied to clipboard using `wl-copy` (Wayland clipboard utility)
+- The daemon may attempt automatic pasting on some compositors, but this often fails due to security policies or compositor limitations
+- **Recommended**: Use "clipboard" output mode and paste manually with Ctrl+V when the tray icon turns green
 
-   **Workaround**: When you see the "Text ready! Press Ctrl+V to paste" notification, manually paste with Ctrl+V. The text is already in your clipboard.
-
-2. **Visual Feedback**: croaker shows visual feedback via system tray icon (default) or desktop notifications, displaying the current state through color changes (grey=idle, red=recording, orange=processing, green=done).
-
-**KDE and Hyprland users**: Text insertion works automatically without manual intervention, as these compositors properly support the virtual keyboard protocol.
+**Visual Feedback**: croaker shows visual feedback via system tray icon (default) or desktop notifications, displaying the current state through color changes (grey=idle, red=recording, orange=processing, green=done).
 
 ### Compilation Warnings
 

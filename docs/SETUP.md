@@ -130,9 +130,11 @@ croaker toggle-language
 
 croaker supports three output modes that control how transcribed text is handled:
 
-- **`direct`**: Types text directly at cursor position (may fallback to clipboard on Wayland)
-- **`clipboard`**: Only copies text to clipboard (no automatic paste)
-- **`both`**: Copies to clipboard AND tries to paste/type automatically
+- **`direct`**: Attempts to type text directly (often fails - falls back to clipboard)
+- **`clipboard`**: Only copies text to clipboard (recommended - you paste manually with Ctrl+V)
+- **`both`**: Copies to clipboard AND attempts automatic paste (may fail - clipboard is reliable)
+
+**Note**: Automatic pasting is unreliable across platforms. The recommended workflow is to use "clipboard" mode and paste manually with Ctrl+V when you see the tray icon turn green.
 
 Toggle between modes using:
 - CLI: `croaker toggle-output-mode`
@@ -190,9 +192,14 @@ If the system tray icon isn't appearing, check that your desktop environment sup
 - `tray` (default): System tray icon that changes color based on state (grey=idle, red=recording, orange=processing, green=done). Portable across Linux DEs.
 - `notification`: Desktop notifications (may clutter notification history)
 
-### GNOME Text Insertion Issues
+### Text Output Behavior
 
-**⚠️ GNOME Limitation**: GNOME doesn't support the virtual keyboard protocol, so automatic text insertion may fail. If you see a notification saying "Text ready! Press Ctrl+V to paste", the text is already in your clipboard - just paste manually.
+**Important**: croaker copies transcribed text to your clipboard. Automatic pasting is unreliable across all platforms, so you should paste manually with Ctrl+V.
+
+The daemon may attempt automatic pasting on some compositors, but this often fails due to security policies or compositor limitations. The reliable workflow is:
+1. Record your speech (tray icon turns red)
+2. Wait for processing (tray icon turns orange, then green)
+3. Paste manually with Ctrl+V (text is already in your clipboard)
 
 
 ## Auto-start

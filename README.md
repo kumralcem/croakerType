@@ -11,11 +11,10 @@ Speech-to-text daemon for Linux/Wayland that captures audio, transcribes via Gro
 - **Processing pipeline:**
   - Audio → Groq Whisper (transcription) → Groq LLM (cleanup) → cleaned text
 
-- **Text injection:**
-  - **Wayland (KDE/Hyprland)**: Uses `wtype` for reliable automatic text insertion
-  - **Wayland (GNOME)**: GNOME doesn't support virtual keyboard protocol - automatic insertion may fail, manual paste (Ctrl+V) may be required
-  - **X11**: Uses `/dev/uinput` virtual keyboard
-  - **Non-ASCII fallback**: `wl-copy` + synthetic Ctrl+V
+- **Text output:**
+  - **All platforms**: Text is copied to clipboard via `wl-copy` (Wayland clipboard utility)
+  - **Note**: Automatic pasting is unreliable across platforms - croaker copies text to clipboard, and you paste manually with Ctrl+V
+  - The daemon attempts automatic insertion on some compositors but this often fails - clipboard copy is the reliable method
 
 - **Visual feedback:**
   - Default: System tray icon that changes color based on state (grey=idle, red=recording, orange=processing, green=done)
@@ -23,9 +22,9 @@ Speech-to-text daemon for Linux/Wayland that captures audio, transcribes via Gro
   - Works across all desktop environments (GNOME, KDE, Hyprland)
 
 - **Output modes:**
-  - **Direct**: Type text directly at cursor position
-  - **Clipboard**: Copy to clipboard only (no automatic paste)
-  - **Both**: Copy to clipboard AND automatically paste/type
+  - **Direct**: Attempts to type text directly (often fails - falls back to clipboard)
+  - **Clipboard**: Copy to clipboard only (recommended - you paste manually with Ctrl+V)
+  - **Both**: Copies to clipboard AND attempts automatic paste (may fail - clipboard is reliable)
   - Toggle at runtime with `Shift+RightAlt+O` or `croaker toggle-output-mode`
 
 - **Multi-language support:**
@@ -145,13 +144,15 @@ croaker toggle-language     # Toggle language (cycles through configured languag
 croaker configure  # Interactive setup wizard
 ```
 
-## Compositor Compatibility
+## How It Works
 
-### Text Insertion
+### Text Output
 
-- **KDE Plasma**: ✅ Full support - automatic text insertion works reliably via `wtype`
-- **Hyprland/Sway**: ✅ Full support - automatic text insertion works reliably via `wtype`
-- **GNOME**: ⚠️ **Limited support** - GNOME doesn't support the virtual keyboard protocol. Automatic insertion may fail, and you may need to paste manually with Ctrl+V. The daemon will notify you when text is ready.
+**Important**: croaker copies transcribed text to your clipboard. Automatic pasting is unreliable across platforms, so you should paste manually with Ctrl+V after recording.
+
+- **All platforms**: Text is copied to clipboard using `wl-copy` (Wayland clipboard utility)
+- **Automatic pasting**: The daemon attempts automatic insertion on some compositors (KDE, Hyprland) but this often fails or is blocked by security policies
+- **Recommended workflow**: Use "clipboard" mode and paste manually with Ctrl+V when you see the tray icon turn green
 
 ### Visual Feedback
 
