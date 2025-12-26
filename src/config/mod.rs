@@ -47,10 +47,16 @@ pub struct Config {
 pub struct GeneralConfig {
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default = "default_languages")]
+    pub languages: Vec<String>,
 }
 
 fn default_language() -> String {
     "en".to_string()
+}
+
+fn default_languages() -> Vec<String> {
+    vec!["en".to_string(), "tr".to_string(), "es".to_string(), "fr".to_string(), "de".to_string()]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +71,10 @@ pub struct HotkeyConfig {
     pub toggle_enabled: bool,
     #[serde(default = "default_cancel_shortcut")]
     pub cancel_shortcut: String,
+    #[serde(default = "default_output_mode_shortcut")]
+    pub output_mode_shortcut: String,
+    #[serde(default = "default_language_shortcut")]
+    pub language_shortcut: String,
 }
 
 fn default_push_to_talk_key() -> String {
@@ -77,6 +87,14 @@ fn default_toggle_shortcut() -> String {
 
 fn default_cancel_shortcut() -> String {
     "Escape".to_string()
+}
+
+fn default_output_mode_shortcut() -> String {
+    "Shift+RightAlt+O".to_string()
+}
+
+fn default_language_shortcut() -> String {
+    "Shift+RightAlt+L".to_string()
 }
 
 fn default_true() -> bool {
@@ -135,16 +153,30 @@ fn default_cleanup_prompt_file() -> String {
     "~/.config/croaker/prompts/default.txt".to_string()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputMode {
+    Direct,
+    Clipboard,
+    Both,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputConfig {
     #[serde(default = "default_keystroke_delay")]
     pub keystroke_delay_ms: u64,
     #[serde(default = "default_true")]
     pub clipboard_restore: bool,
+    #[serde(default = "default_output_mode")]
+    pub output_mode: OutputMode,
 }
 
 fn default_keystroke_delay() -> u64 {
     5
+}
+
+fn default_output_mode() -> OutputMode {
+    OutputMode::Both
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,6 +226,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             language: default_language(),
+            languages: default_languages(),
         }
     }
 }
@@ -206,6 +239,8 @@ impl Default for HotkeyConfig {
             toggle_shortcut: default_toggle_shortcut(),
             toggle_enabled: default_true(),
             cancel_shortcut: default_cancel_shortcut(),
+            output_mode_shortcut: default_output_mode_shortcut(),
+            language_shortcut: default_language_shortcut(),
         }
     }
 }
@@ -237,6 +272,7 @@ impl Default for OutputConfig {
         Self {
             keystroke_delay_ms: default_keystroke_delay(),
             clipboard_restore: default_true(),
+            output_mode: default_output_mode(),
         }
     }
 }
@@ -290,6 +326,8 @@ impl Config {
 [general]
 # Language code for transcription (e.g., "en", "es", "fr")
 language = "en"
+# List of languages to toggle between (use language codes like "en", "tr", "es", "fr", "de", etc.)
+languages = ["en", "tr", "es", "fr", "de"]
 
 [hotkeys]
 # Push-to-talk key (e.g., "RightAlt", "LeftAlt", "RightCtrl", "LeftCtrl")
@@ -302,6 +340,10 @@ toggle_shortcut = "Super+Shift+R"
 toggle_enabled = true
 # Cancel shortcut
 cancel_shortcut = "Escape"
+# Output mode toggle shortcut (cycles between direct/clipboard/both)
+output_mode_shortcut = "Shift+RightAlt+O"
+# Language toggle shortcut (cycles through configured languages)
+language_shortcut = "Shift+RightAlt+L"
 
 [audio]
 # Audio device (use "default" for system default)
@@ -331,6 +373,8 @@ cleanup_prompt_file = "~/.config/croaker/prompts/default.txt"
 keystroke_delay_ms = 5
 # Restore clipboard after pasting (disabled - user preference)
 clipboard_restore = false
+# Output mode: "direct" (type directly), "clipboard" (copy to clipboard only), "both" (do both)
+output_mode = "both"
 
 [overlay]
 # Enable visual overlay

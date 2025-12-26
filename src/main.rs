@@ -32,6 +32,10 @@ enum Commands {
     Cancel,
     /// Get current status
     Status,
+    /// Toggle output mode (direct/clipboard/both)
+    ToggleOutputMode,
+    /// Toggle language (cycles through configured languages)
+    ToggleLanguage,
     /// Interactive configuration wizard
     Configure,
 }
@@ -58,6 +62,12 @@ async fn main() -> anyhow::Result<()> {
             let status = send_command("status").await?;
             println!("{}", status);
         }
+        Commands::ToggleOutputMode => {
+            send_command("toggle-output-mode").await?;
+        }
+        Commands::ToggleLanguage => {
+            send_command("toggle-language").await?;
+        }
         Commands::Configure => {
             configure().await?;
         }
@@ -71,6 +81,7 @@ async fn serve() -> anyhow::Result<()> {
 
     // Load config
     let config = Config::load()?;
+    tracing::info!("DEBUG: Config loaded, push_to_talk_enabled: {}", config.hotkeys.push_to_talk_enabled);
 
     // Create state machine
     let mut state_machine = StateMachine::new(config.clone())?;
@@ -133,7 +144,9 @@ async fn serve() -> anyhow::Result<()> {
     });
 
     // Spawn evdev push-to-talk monitor (if enabled)
+    tracing::info!("DEBUG: push_to_talk_enabled: {}", config.hotkeys.push_to_talk_enabled);
     let evdev_task = if config.hotkeys.push_to_talk_enabled {
+        tracing::info!("DEBUG: Creating evdev task");
         let event_tx_evdev = event_tx.clone();
         let config_evdev = config.clone();
         Some(tokio::spawn(async move {

@@ -22,23 +22,52 @@ Speech-to-text daemon for Linux/Wayland that captures audio, transcribes via Gro
   - Optional: Pulsing dot overlay with audio level visualization (GTK backend)
   - Works across all desktop environments (GNOME, KDE, Hyprland)
 
+- **Output modes:**
+  - **Direct**: Type text directly at cursor position
+  - **Clipboard**: Copy to clipboard only (no automatic paste)
+  - **Both**: Copy to clipboard AND automatically paste/type
+  - Toggle at runtime with `Shift+RightAlt+O` or `croaker toggle-output-mode`
+
+- **Multi-language support:**
+  - Configure multiple languages in config (default includes English, Turkish, Spanish, French, German)
+  - Toggle between languages at runtime with `Shift+RightAlt+L` or `croaker toggle-language`
+  - Visual notification shows current language
+  - Selected language is used for next transcription
+
 ## Installation
 
 ### Dependencies
 
 ```bash
 # Fedora
-sudo dnf install pipewire-utils wl-clipboard
+sudo dnf install pipewire-utils wl-clipboard openssl-devel gtk4-devel glib2-devel
+
+# Ubuntu/Debian
+sudo apt install pipewire-utils wl-clipboard libssl-dev libgtk-4-dev libglib2.0-dev
+
+# Arch
+sudo pacman -S pipewire-utils wl-clipboard openssl gtk4 glib2
 
 # Add user to input group (required for uinput and evdev)
 sudo usermod -aG input $USER
-# Log out and back in
+# Log out and back in for group membership to take effect
 ```
 
 ### Build
 
 ```bash
 cargo build --release
+```
+
+### System Installation (Recommended)
+
+```bash
+# Install binary system-wide
+sudo cp target/release/croaker /usr/local/bin/
+
+# Install default configuration
+sudo mkdir -p /etc/croaker/prompts
+sudo cp config/default_prompt.txt /etc/croaker/prompts/default.txt
 ```
 
 ## Configuration
@@ -48,6 +77,8 @@ Create `~/.config/croaker/config.toml`:
 ```toml
 [general]
 language = "en"
+# List of languages to toggle between (use language codes like "en", "tr", "es", "fr", "de", etc.)
+languages = ["en", "tr", "es", "fr", "de"]
 
 [hotkeys]
 push_to_talk_key = "RightAlt"
@@ -55,6 +86,10 @@ push_to_talk_enabled = true
 toggle_shortcut = "Super+Shift+R"
 toggle_enabled = true
 cancel_shortcut = "Escape"
+# Output mode toggle shortcut (cycles between direct/clipboard/both)
+output_mode_shortcut = "Shift+RightAlt+O"
+# Language toggle shortcut (cycles through configured languages)
+language_shortcut = "Shift+RightAlt+L"
 
 [audio]
 device = "default"
@@ -71,6 +106,8 @@ cleanup_prompt_file = "~/.config/croaker/prompts/default.txt"
 [output]
 keystroke_delay_ms = 5
 clipboard_restore = true
+# Output mode: "direct" (type directly), "clipboard" (copy to clipboard only), "both" (do both)
+output_mode = "both"
 
 [overlay]
 enabled = true
@@ -98,9 +135,11 @@ croaker serve
 ### Control daemon
 
 ```bash
-croaker toggle    # Toggle recording
-croaker cancel    # Cancel current operation
-croaker status    # Get current state
+croaker toggle              # Toggle recording
+croaker cancel              # Cancel current operation
+croaker status              # Get current state
+croaker toggle-output-mode  # Toggle output mode (direct/clipboard/both)
+croaker toggle-language     # Toggle language (cycles through configured languages)
 ```
 
 ### Configure

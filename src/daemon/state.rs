@@ -23,6 +23,8 @@ pub enum StateEvent {
     Cancel,
     ProcessingComplete(String),
     OutputComplete,
+    ToggleOutputMode,
+    ToggleLanguage,
 }
 
 #[derive(Debug, Error)]
@@ -53,6 +55,8 @@ pub struct StateMachine {
     event_tx: mpsc::Sender<StateEvent>,
     event_rx: mpsc::Receiver<StateEvent>,
     state_tx: Option<mpsc::Sender<DaemonState>>,
+    current_language_index: usize,
+    current_output_mode: crate::config::OutputMode,
 }
 
 impl StateMachine {
@@ -70,9 +74,15 @@ impl StateMachine {
         let (event_tx, event_rx) = mpsc::channel(32);
 
         let config_clone = config.clone();
+        
+        // Find initial language index
+        let current_language_index = config.general.languages.iter()
+            .position(|l| l == &config.general.language)
+            .unwrap_or(0);
+        
         Ok(Self {
             state: DaemonState::Idle,
-            config,
+            config: config.clone(),
             audio_recorder: AudioRecorder::new(config_clone),
             whisper_client,
             cleanup_client,
@@ -82,6 +92,8 @@ impl StateMachine {
             event_tx,
             event_rx,
             state_tx: None,
+            current_language_index,
+            current_output_mode: config.output.output_mode,
         })
     }
 
@@ -132,6 +144,12 @@ impl StateMachine {
             (DaemonState::Outputting, StateEvent::OutputComplete) => {
                 self.update_state(DaemonState::Idle);
             }
+            (_, StateEvent::ToggleOutputMode) => {
+                self.toggle_output_mode().await?;
+            }
+            (_, StateEvent::ToggleLanguage) => {
+                self.toggle_language().await?;
+            }
             _ => {
                 tracing::warn!("Invalid state transition: {:?} -> {:?}", self.state, event);
                 return Err(StateError::InvalidTransition);
@@ -157,12 +175,16 @@ impl StateMachine {
         let whisper_client = Arc::new(self.whisper_client.clone());
         let cleanup_client = Arc::new(self.cleanup_client.clone());
         let event_tx = self.event_tx.clone();
+        let current_language = self.config.general.languages.get(self.current_language_index)
+            .cloned()
+            .unwrap_or_else(|| self.config.general.language.clone());
 
         tokio::spawn(async move {
             let result = Self::process_audio(
                 &*whisper_client,
                 &*cleanup_client,
-                wav_path
+                wav_path,
+                &current_language
             ).await;
             
             match result {
@@ -183,9 +205,10 @@ impl StateMachine {
         whisper_client: &WhisperClient,
         cleanup_client: &CleanupClient,
         wav_path: PathBuf,
+        language: &str,
     ) -> Result<String, StateError> {
-        // Transcribe
-        let raw_text = whisper_client.transcribe(&wav_path).await?;
+        // Transcribe with current language
+        let raw_text = whisper_client.transcribe_with_language(&wav_path, language).await?;
 
         // Cleanup
         let cleaned_text = cleanup_client.cleanup(&raw_text).await?;
@@ -199,44 +222,109 @@ impl StateMachine {
     }
 
     async fn output_text(&mut self, text: &str) -> Result<(), StateError> {
-        tracing::info!("Outputting text: {} chars", text.len());
+        tracing::info!("Outputting text: {} chars (mode: {:?})", text.len(), self.current_output_mode);
         self.update_state(DaemonState::Outputting);
 
-        // On Wayland, uinput often doesn't work reliably, so use clipboard by default
-        let is_wayland = std::env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "wayland")
-            .unwrap_or(false);
-        
-        // Check if text contains non-ASCII
-        let has_non_ascii = text.chars().any(|c| !c.is_ascii());
-
-        if is_wayland || has_non_ascii {
-            // Use clipboard method (works reliably on Wayland)
-            tracing::debug!("Using clipboard method (Wayland={}, non-ASCII={})", is_wayland, has_non_ascii);
-            self.clipboard.copy_and_paste(text).await?;
-        } else {
-            // Use direct uinput typing (works on X11)
-            tracing::debug!("Using uinput method");
-            match self.keyboard.type_text(text).await {
-                Ok(()) => {}
-                Err(crate::output::uinput::UinputError::UnsupportedChar(_)) => {
-                    // Fallback to clipboard
-                    tracing::debug!("Falling back to clipboard (unsupported char)");
-                    self.clipboard.copy_and_paste(text).await?;
+        match self.current_output_mode {
+            crate::config::OutputMode::Direct => {
+                // Try direct typing first, fallback to clipboard if it fails
+                tracing::debug!("Using direct output mode");
+                match self.keyboard.type_text(text).await {
+                    Ok(()) => {}
+                    Err(crate::output::uinput::UinputError::UnsupportedChar(_)) => {
+                        tracing::debug!("Falling back to clipboard (unsupported char)");
+                        self.clipboard.copy_to_clipboard(text).await?;
+                    }
+                    Err(e) => {
+                        tracing::warn!("uinput failed, falling back to clipboard: {}", e);
+                        self.clipboard.copy_to_clipboard(text).await?;
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("uinput failed, falling back to clipboard: {}", e);
-                    self.clipboard.copy_and_paste(text).await?;
+            }
+            crate::config::OutputMode::Clipboard => {
+                // Only copy to clipboard, don't paste
+                tracing::debug!("Using clipboard-only output mode");
+                self.clipboard.copy_to_clipboard(text).await?;
+            }
+            crate::config::OutputMode::Both => {
+                // Copy to clipboard first
+                tracing::debug!("Using both output modes - copying to clipboard");
+                self.clipboard.copy_to_clipboard(text).await?;
+                
+                // Then try to paste/type
+                let is_wayland = std::env::var("XDG_SESSION_TYPE")
+                    .map(|s| s == "wayland")
+                    .unwrap_or(false);
+                
+                let has_non_ascii = text.chars().any(|c| !c.is_ascii());
+
+                if is_wayland || has_non_ascii {
+                    // Use clipboard paste method (works reliably on Wayland)
+                    tracing::debug!("Using clipboard paste method (Wayland={}, non-ASCII={})", is_wayland, has_non_ascii);
+                    self.clipboard.paste().await?;
+                } else {
+                    // Try direct typing, fallback to paste if it fails
+                    tracing::debug!("Trying direct typing");
+                    match self.keyboard.type_text(text).await {
+                        Ok(()) => {}
+                        Err(crate::output::uinput::UinputError::UnsupportedChar(_)) => {
+                            tracing::debug!("Falling back to clipboard paste (unsupported char)");
+                            self.clipboard.paste().await?;
+                        }
+                        Err(e) => {
+                            tracing::warn!("uinput failed, falling back to clipboard paste: {}", e);
+                            self.clipboard.paste().await?;
+                        }
+                    }
                 }
             }
         }
 
-        // Clipboard restoration disabled - user requested removal
-        // No need to restore clipboard anymore
-
         // Signal completion
         let _ = self.event_tx.send(StateEvent::OutputComplete).await;
         Ok(())
+    }
+
+    async fn toggle_output_mode(&mut self) -> Result<(), StateError> {
+        self.current_output_mode = match self.current_output_mode {
+            crate::config::OutputMode::Direct => crate::config::OutputMode::Clipboard,
+            crate::config::OutputMode::Clipboard => crate::config::OutputMode::Both,
+            crate::config::OutputMode::Both => crate::config::OutputMode::Direct,
+        };
+        
+        let mode_str = match self.current_output_mode {
+            crate::config::OutputMode::Direct => "Direct",
+            crate::config::OutputMode::Clipboard => "Clipboard",
+            crate::config::OutputMode::Both => "Both",
+        };
+        
+        tracing::info!("Output mode changed to: {}", mode_str);
+        self.show_notification(&format!("Output Mode: {}", mode_str));
+        Ok(())
+    }
+
+    async fn toggle_language(&mut self) -> Result<(), StateError> {
+        if self.config.general.languages.is_empty() {
+            tracing::warn!("No languages configured");
+            return Ok(());
+        }
+        
+        // Cycle to next language
+        self.current_language_index = (self.current_language_index + 1) % self.config.general.languages.len();
+        let new_language = &self.config.general.languages[self.current_language_index];
+        
+        tracing::info!("Language changed to: {}", new_language);
+        self.show_notification(&format!("Language: {}", new_language.to_uppercase()));
+        Ok(())
+    }
+
+    fn show_notification(&self, message: &str) {
+        // Use notify-send or similar to show notification
+        let _ = std::process::Command::new("notify-send")
+            .arg("croaker")
+            .arg(message)
+            .arg("--expire-time=2000")
+            .spawn();
     }
 
     async fn cancel(&mut self) -> Result<(), StateError> {

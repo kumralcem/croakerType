@@ -32,8 +32,13 @@ chmod 600 ~/.config/croaker/groq.key
 # 4. Build
 cargo build --release
 
-# 5. Start daemon
-./target/release/croaker serve
+# 5. Install system-wide (recommended)
+sudo cp target/release/croaker /usr/local/bin/
+sudo mkdir -p /etc/croaker/prompts
+sudo cp config/default_prompt.txt /etc/croaker/prompts/default.txt
+
+# 6. Start daemon
+croaker serve
 ```
 
 ## Usage
@@ -78,12 +83,30 @@ Edit `~/.config/croaker/config.toml` (created automatically with defaults):
 - `cleanup_enabled`: Set to `false` to skip LLM cleanup (faster, less polished)
 - `overlay.backend`: Overlay backend (`notification` default, `gtk` for pulsing dot, `layer-shell`, `auto`)
 
+### Output Modes
+
+Control how transcribed text is handled:
+
+- `output_mode`: Set to `"direct"`, `"clipboard"`, or `"both"` (default: `"both"`)
+- Toggle at runtime: `croaker toggle-output-mode` or `Shift+RightAlt+O`
+- Shows notification with current mode
+
+### Language Toggle
+
+Configure multiple languages and switch between them:
+
+- `languages`: List of language codes (e.g., `["en", "tr", "es", "fr", "de"]`)
+- Toggle at runtime: `croaker toggle-language` or `Shift+RightAlt+L`
+- Shows notification with current language (e.g., "Language: EN")
+
 ## Troubleshooting
 
 **Hotkeys not working?**
 - Check you're in `input` group: `groups | grep input`
 - Check daemon is running: `croaker status`
 - Try push-to-talk mode if portal shortcuts don't work
+- **Keyboard device not found?** Run with debug logging: `RUST_LOG=debug croaker serve`
+- **Key not detected?** Use `sudo evtest` to verify your key codes
 
 **No text appearing?**
 - Check API key is correct: `cat ~/.config/croaker/groq.key`

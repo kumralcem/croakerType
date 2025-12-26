@@ -22,6 +22,7 @@ pub struct WhisperClient {
     client: Client,
     config: Config,
     api_key: String,
+    language: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -36,15 +37,22 @@ impl WhisperClient {
             .build()
             .expect("Failed to create HTTP client");
         
+        let language = config.general.language.clone();
+        
         Self {
             client,
             config,
             api_key,
+            language,
         }
     }
 
     pub async fn transcribe(&self, audio_path: &Path) -> Result<String, WhisperError> {
-        tracing::info!("Transcribing audio file: {:?}", audio_path);
+        self.transcribe_with_language(audio_path, &self.language).await
+    }
+
+    pub async fn transcribe_with_language(&self, audio_path: &Path, language: &str) -> Result<String, WhisperError> {
+        tracing::info!("Transcribing audio file: {:?} (language: {})", audio_path, language);
 
         // Read audio file
         let audio_data = fs::read(audio_path).await?;
@@ -59,8 +67,8 @@ impl WhisperClient {
             .part("file", file_part);
 
         // Add language if specified
-        if !self.config.general.language.is_empty() {
-            form = form.text("language", self.config.general.language.clone());
+        if !language.is_empty() {
+            form = form.text("language", language.to_string());
         }
 
         // Make request

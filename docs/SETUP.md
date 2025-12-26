@@ -46,18 +46,28 @@ Create `~/.config/croaker/config.toml`:
 ```toml
 [general]
 language = "en"
+# List of languages to toggle between (use language codes like "en", "tr", "es", "fr", "de", etc.)
+languages = ["en", "tr", "es", "fr", "de"]
 
 [hotkeys]
 push_to_talk_key = "RightAlt"
 push_to_talk_enabled = true
 toggle_shortcut = "Super+Shift+R"
 toggle_enabled = true
+# Output mode toggle shortcut (cycles between direct/clipboard/both)
+output_mode_shortcut = "Shift+RightAlt+O"
+# Language toggle shortcut (cycles through configured languages)
+language_shortcut = "Shift+RightAlt+L"
 
 [groq]
 key_file = "~/.config/croaker/groq.key"
 whisper_model = "whisper-large-v3-turbo"
 cleanup_enabled = true
 cleanup_model = "llama-3.3-70b-versatile"
+
+[output]
+# Output mode: "direct" (type directly), "clipboard" (copy to clipboard only), "both" (do both)
+output_mode = "both"
 
 [overlay]
 enabled = true
@@ -108,7 +118,44 @@ croaker cancel
 
 # Check status
 croaker status
+
+# Toggle output mode (direct/clipboard/both)
+croaker toggle-output-mode
+
+# Toggle language (cycles through configured languages)
+croaker toggle-language
 ```
+
+### Output Modes
+
+croaker supports three output modes that control how transcribed text is handled:
+
+- **`direct`**: Types text directly at cursor position (may fallback to clipboard on Wayland)
+- **`clipboard`**: Only copies text to clipboard (no automatic paste)
+- **`both`**: Copies to clipboard AND tries to paste/type automatically
+
+Toggle between modes using:
+- CLI: `croaker toggle-output-mode`
+- Hotkey: `Shift+RightAlt+O` (default, configurable)
+- Socket command: `echo "toggle-output-mode" | nc -U ~/.cache/croaker/croaker.sock`
+
+A notification will appear showing the current mode.
+
+### Language Toggle
+
+Configure multiple languages in `~/.config/croaker/config.toml`:
+
+```toml
+[general]
+languages = ["en", "es", "fr", "de", "it", "pt"]  # Add any language codes
+```
+
+Toggle between languages using:
+- CLI: `croaker toggle-language`
+- Hotkey: `Shift+RightAlt+L` (default, configurable)
+- Socket command: `echo "toggle-language" | nc -U ~/.cache/croaker/croaker.sock`
+
+A notification will appear showing the current language (e.g., "Language: EN"). The selected language is used for the next transcription.
 
 ## Troubleshooting
 

@@ -19,6 +19,8 @@ pub enum Command {
     Toggle,
     Cancel,
     Status,
+    ToggleOutputMode,
+    ToggleLanguage,
 }
 
 impl Command {
@@ -28,6 +30,8 @@ impl Command {
             "toggle" => Ok(Command::Toggle),
             "cancel" => Ok(Command::Cancel),
             "status" => Ok(Command::Status),
+            "toggle-output-mode" => Ok(Command::ToggleOutputMode),
+            "toggle-language" => Ok(Command::ToggleLanguage),
             _ => Err(SocketError::ParseError(format!("Unknown command: {}", line))),
         }
     }
@@ -135,6 +139,16 @@ impl SocketServer {
                 let state = *current_state.lock().await;
                 let state_str = format!("{:?}\n", state);
                 write_half.write_all(state_str.as_bytes()).await?;
+            }
+            Command::ToggleOutputMode => {
+                event_tx.send(StateEvent::ToggleOutputMode).await
+                    .map_err(|e| SocketError::ParseError(e.to_string()))?;
+                write_half.write_all(b"ok\n").await?;
+            }
+            Command::ToggleLanguage => {
+                event_tx.send(StateEvent::ToggleLanguage).await
+                    .map_err(|e| SocketError::ParseError(e.to_string()))?;
+                write_half.write_all(b"ok\n").await?;
             }
         }
 

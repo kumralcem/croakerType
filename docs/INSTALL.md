@@ -46,45 +46,97 @@ cargo build --release
 
 The binary will be at `target/release/croaker`.
 
-### 5. Install (Optional)
+### 5. System-Wide Installation (Recommended)
+
+For a complete installation with auto-startup:
 
 ```bash
-# Copy to a location in your PATH
+# Install the binary system-wide
 sudo cp target/release/croaker /usr/local/bin/
+
+# Create system configuration directory
+sudo mkdir -p /etc/croaker
+
+# Copy default prompt template
+sudo cp config/default_prompt.txt /etc/croaker/prompts/default.txt
+
+# Set proper permissions (readable by all users, but API key stays user-specific)
+sudo chmod 755 /usr/local/bin/croaker
 ```
 
 ## Auto-Start Daemon
 
-### systemd User Service
+### systemd User Service (Recommended)
 
-Create `~/.config/systemd/user/croaker.service`:
+Create the user service directory and service file:
 
-```ini
+```bash
+# Create systemd user directory
+mkdir -p ~/.config/systemd/user
+
+# Create the service file
+cat > ~/.config/systemd/user/croaker.service << 'EOF'
 [Unit]
 Description=croaker speech-to-text daemon
-After=graphical-session.target
+After=graphical-session.target sound.target
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/croaker serve
 Restart=on-failure
 RestartSec=5
+Environment=RUST_LOG=info
 
 [Install]
 WantedBy=default.target
+EOF
 ```
 
-Enable and start:
+Enable and start the service:
 
 ```bash
+# Reload systemd daemon
+systemctl --user daemon-reload
+
+# Enable auto-start on login
 systemctl --user enable croaker
+
+# Start the service now
 systemctl --user start croaker
+
+# Check status
+systemctl --user status croaker
 ```
 
-Check status:
+### Desktop Environment Integration
+
+For better integration with your desktop environment, you can also add croaker to your startup applications:
+
+**GNOME/KDE:**
+- System Settings → Startup Applications → Add croaker
+- Command: `/usr/local/bin/croaker serve`
+
+**Manual .desktop file:**
+Create `~/.config/autostart/croaker.desktop`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=croaker
+Comment=Speech-to-text daemon
+Exec=/usr/local/bin/croaker serve
+Terminal=false
+Categories=Utility;
+```
+
+### Stopping the Service
 
 ```bash
-systemctl --user status croaker
+# Stop the service
+systemctl --user stop croaker
+
+# Disable auto-start
+systemctl --user disable croaker
 ```
 
 ## Testing
@@ -111,10 +163,41 @@ croaker serve
 In another terminal:
 
 ```bash
-croaker toggle    # Toggle recording
-croaker status    # Check status  
-croaker cancel    # Cancel operation
+croaker toggle              # Toggle recording
+croaker status              # Check status  
+croaker cancel              # Cancel operation
+croaker toggle-output-mode  # Toggle output mode (direct/clipboard/both) - default hotkey: Shift+RightAlt+O
+croaker toggle-language     # Toggle language (cycles through configured languages) - default hotkey: Shift+RightAlt+L
 ```
+
+### 5. Test Output Modes
+
+Try different output modes to see how text is handled:
+
+```bash
+# Switch to clipboard-only mode
+croaker toggle-output-mode  # Shows notification: "Output Mode: Clipboard"
+
+# Switch to direct typing mode
+croaker toggle-output-mode  # Shows notification: "Output Mode: Direct"
+
+# Switch to both modes
+croaker toggle-output-mode  # Shows notification: "Output Mode: Both"
+```
+
+### 6. Test Language Toggle
+
+If you've configured multiple languages in `~/.config/croaker/config.toml`:
+
+```bash
+# Toggle to next language
+croaker toggle-language  # Shows notification: "Language: ES" (or next language)
+
+# Continue toggling cycles through all configured languages
+croaker toggle-language  # Shows notification: "Language: FR"
+```
+
+The selected language will be used for the next transcription.
 
 ## Troubleshooting
 
@@ -162,6 +245,53 @@ If notifications aren't appearing, check that your desktop environment's notific
 - `"gtk"`: Floating pulsing dot indicator with audio level visualization
 - `"layer-shell"`: Layer-shell overlay (wlroots compositors, requires feature flag)
 - `"auto"`: Automatically selects the best available backend
+
+### Keyboard Device Detection Issues
+
+If you see `"Failed to start evdev monitor: No keyboard device found"` in the logs:
+
+1. **Check Input Group Membership**:
+   ```bash
+   groups | grep input
+   ```
+   If not listed, add yourself and log out/in:
+   ```bash
+   sudo usermod -aG input $USER
+   ```
+
+2. **Verify Device Permissions**:
+   ```bash
+   ls -l /dev/input/event*
+   ```
+   Devices should be readable by the `input` group.
+
+3. **Test Device Detection**:
+   ```bash
+   # Install evtest if needed
+   sudo dnf install evtest
+
+   # List available input devices
+   sudo evtest --list
+
+   # Test a specific device (replace X with device number)
+   sudo evtest /dev/input/eventX
+   ```
+
+4. **Key Code Detection**: Different environments may map keys differently. If push-to-talk doesn't work:
+   - Use `evtest` to find your desired key's code
+   - Update `push_to_talk_key` in `~/.config/croaker/config.toml`
+   - Supported keys: `RightAlt`, `LeftAlt`, `RightCtrl`, `LeftCtrl`
+
+### Portal Shortcuts Not Working (Alternative)
+
+If push-to-talk mode fails, portal shortcuts provide an alternative:
+
+Portal shortcuts require:
+- GNOME 45+
+- KDE Plasma
+- wlroots-based compositors (Hyprland, Sway)
+
+For older compositors, use push-to-talk mode instead.
 
 ### GNOME-Specific Issues
 

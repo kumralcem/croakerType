@@ -21,6 +21,8 @@ State transitions are triggered by events:
 - `Cancel`: Abort current operation
 - `ProcessingComplete`: Text ready to output
 - `OutputComplete`: Text injection finished
+- `ToggleOutputMode`: Change output mode (direct/clipboard/both)
+- `ToggleLanguage`: Cycle to next configured language
 
 ### Input Sources
 
@@ -38,16 +40,26 @@ Uses `pw-record` (PipeWire) to capture audio:
 ### Transcription Pipeline
 
 1. **Whisper API**: Sends audio file to Groq Whisper endpoint
+   - Uses currently selected language from language toggle
+   - Language can be changed at runtime without restarting daemon
 2. **LLM Cleanup**: Sends raw transcription to Groq LLM with cleanup prompt
-3. **Output**: Injects cleaned text via uinput or clipboard
+3. **Output**: Injects cleaned text according to current output mode (direct/clipboard/both)
 
 ### Text Output
 
-Text insertion strategy varies by compositor:
+Text insertion strategy varies by compositor and output mode:
+
+**Output Modes:**
+- **`direct`**: Types text directly at cursor position (may fallback to clipboard on Wayland)
+- **`clipboard`**: Only copies text to clipboard (no automatic paste)
+- **`both`**: Copies to clipboard AND tries to paste/type automatically
+
+**Compositor-specific behavior:**
 
 1. **Wayland (KDE/Hyprland)**: Uses `wtype` for reliable automatic text insertion
    - These compositors support the virtual keyboard protocol
    - Works seamlessly without user intervention
+   - In `both` mode, uses `wtype` to paste after copying to clipboard
 
 2. **Wayland (GNOME)**: ⚠️ Limited support
    - GNOME doesn't support virtual keyboard protocol
@@ -55,14 +67,16 @@ Text insertion strategy varies by compositor:
    - Falls back to uinput Ctrl+V (may work, but unreliable)
    - If both fail, sends notification asking user to paste manually
    - Text is already in clipboard, user just needs to press Ctrl+V
+   - In `clipboard` mode, only copies to clipboard (no paste attempt)
 
 3. **X11**: Uses `/dev/uinput` virtual keyboard
    - Maps ASCII characters to Linux keycodes
    - Handles shift modifier for uppercase/symbols
    - Configurable delay between keystrokes
+   - In `both` mode, tries direct typing first, falls back to clipboard paste if needed
 
 4. **Clipboard Fallback**: For non-ASCII characters or when direct typing fails
-   - Saves current clipboard
+   - Saves current clipboard (if restore enabled)
    - Copies text to clipboard via `wl-copy`
    - Sends Ctrl+V via uinput (or `wtype` on Wayland)
    - Restores original clipboard (if enabled)
