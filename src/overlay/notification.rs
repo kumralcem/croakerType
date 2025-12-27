@@ -55,12 +55,12 @@ impl Overlay for NotificationOverlay {
         // Notifications don't support audio level visualization
     }
 
-    fn update_output_mode(&self, _mode: &str) {
-        // Notifications don't show mode changes (to avoid clutter)
+    fn update_output_mode(&self, mode: &str) {
+        self.send_notification(&format!("Output mode: {}", mode), "normal");
     }
 
-    fn update_language(&self, _language: &str) {
-        // Notifications don't show language changes (to avoid clutter)
+    fn update_language(&self, language: &str) {
+        self.send_notification(&format!("Language: {}", language.to_uppercase()), "normal");
     }
 
     fn show(&self) {

@@ -13,11 +13,22 @@ pub enum EvdevError {
     NoDevice,
     #[error("Failed to parse key name: {0}")]
     ParseKeyError(String),
+    #[error("Failed to parse shortcut: {0}")]
+    ParseShortcutError(String),
+}
+
+#[derive(Debug, Clone)]
+struct ParsedShortcut {
+    needs_shift: bool,
+    modifier_key_code: Option<u16>, // RightAlt, LeftAlt, RightCtrl, LeftCtrl, etc.
+    main_key_code: u16, // O, L, etc.
 }
 
 pub struct EvdevMonitor {
     device_path: std::path::PathBuf,
     key_code: u16,
+    output_mode_shortcut: Option<ParsedShortcut>,
+    language_shortcut: Option<ParsedShortcut>,
     event_tx: mpsc::Sender<StateEvent>,
 }
 
@@ -45,9 +56,22 @@ impl EvdevMonitor {
         // Parse key name to key code
         let key_code = Self::parse_key_name(&config.hotkeys.push_to_talk_key)?;
 
+        // Parse shortcuts from config
+        let output_mode_shortcut = Self::parse_shortcut(&config.hotkeys.output_mode_shortcut)?;
+        let language_shortcut = Self::parse_shortcut(&config.hotkeys.language_shortcut)?;
+
+        if let Some(ref shortcut) = output_mode_shortcut {
+            tracing::info!("Output mode shortcut: {:?}", shortcut);
+        }
+        if let Some(ref shortcut) = language_shortcut {
+            tracing::info!("Language shortcut: {:?}", shortcut);
+        }
+
         Ok(Self {
             device_path,
             key_code,
+            output_mode_shortcut,
+            language_shortcut,
             event_tx,
         })
     }
@@ -128,13 +152,78 @@ impl EvdevMonitor {
         // Note: RightAlt can be either 100 or 108 depending on kernel version
         // We'll check both codes when monitoring
         match name.to_lowercase().as_str() {
-            "rightalt" | "alt_r" => Ok(100), // KEY_RIGHTALT is 100, KEY_DOWN is 108
+            "rightalt" | "alt_r" => Ok(100), // KEY_RIGHTALT is 100
             "leftalt" | "alt_l" => Ok(56),  // KEY_LEFTALT
             "rightctrl" | "ctrl_r" => Ok(97), // KEY_RIGHTCTRL
             "leftctrl" | "ctrl_l" => Ok(29), // KEY_LEFTCTRL
             "rightshift" | "shift_r" => Ok(54), // KEY_RIGHTSHIFT
             "leftshift" | "shift_l" => Ok(42), // KEY_LEFTSHIFT
             _ => Err(EvdevError::ParseKeyError(format!("Unknown key: {}", name))),
+        }
+    }
+
+    fn parse_shortcut(shortcut_str: &str) -> Result<Option<ParsedShortcut>, EvdevError> {
+        if shortcut_str.is_empty() {
+            return Ok(None);
+        }
+
+        let parts: Vec<&str> = shortcut_str.split('+').map(|s| s.trim()).collect();
+        if parts.is_empty() {
+            return Ok(None);
+        }
+
+        let mut needs_shift = false;
+        let mut modifier_key_code = None;
+        let mut main_key_code = None;
+
+        for part in parts {
+            let part_lower = part.to_lowercase();
+            match part_lower.as_str() {
+                "shift" => {
+                    needs_shift = true;
+                }
+                "rightalt" | "alt_r" => {
+                    modifier_key_code = Some(100); // KEY_RIGHTALT
+                }
+                "leftalt" | "alt_l" => {
+                    modifier_key_code = Some(56); // KEY_LEFTALT
+                }
+                "rightctrl" | "ctrl_r" => {
+                    modifier_key_code = Some(97); // KEY_RIGHTCTRL
+                }
+                "leftctrl" | "ctrl_l" => {
+                    modifier_key_code = Some(29); // KEY_LEFTCTRL
+                }
+                "o" => {
+                    main_key_code = Some(24); // KEY_O
+                }
+                "l" => {
+                    main_key_code = Some(38); // KEY_L
+                }
+                _ => {
+                    // Try to parse as a single character key
+                    if part.len() == 1 {
+                        let ch = part.chars().next().unwrap().to_ascii_lowercase();
+                        if ch.is_ascii_alphabetic() {
+                            main_key_code = Some(30 + (ch as u16 - b'a' as u16)); // KEY_A = 30
+                        } else {
+                            return Err(EvdevError::ParseShortcutError(format!("Unknown key in shortcut: {}", part)));
+                        }
+                    } else {
+                        return Err(EvdevError::ParseShortcutError(format!("Unknown modifier/key in shortcut: {}", part)));
+                    }
+                }
+            }
+        }
+
+        if let Some(key_code) = main_key_code {
+            Ok(Some(ParsedShortcut {
+                needs_shift,
+                modifier_key_code,
+                main_key_code: key_code,
+            }))
+        } else {
+            Err(EvdevError::ParseShortcutError(format!("Shortcut missing main key: {}", shortcut_str)))
         }
     }
 
@@ -145,6 +234,8 @@ impl EvdevMonitor {
         let key_code = self.key_code;
         let device_path = self.device_path.clone();
         let event_tx = self.event_tx.clone();
+        let output_mode_shortcut = self.output_mode_shortcut.clone();
+        let language_shortcut = self.language_shortcut.clone();
         let mut is_recording = false;
 
         // Run evdev monitoring in a blocking task since Device doesn't implement Send
@@ -154,16 +245,23 @@ impl EvdevMonitor {
             
             // Track modifier states for shortcut detection
             let mut shift_pressed = false;
-            let mut right_alt_pressed = false;
+            let mut modifier_pressed: Option<u16> = None; // Track which modifier is pressed (RightAlt, LeftAlt, RightCtrl, etc.)
             
-            // Key codes for modifiers and shortcuts
+            // Key codes for modifiers
             const KEY_LEFTSHIFT: u16 = 42;
             const KEY_RIGHTSHIFT: u16 = 54;
             const KEY_RIGHTALT: u16 = 100;
-            const KEY_O: u16 = 24;
-            const KEY_L: u16 = 38;
+            const KEY_LEFTALT: u16 = 56;
+            const KEY_RIGHTCTRL: u16 = 97;
+            const KEY_LEFTCTRL: u16 = 29;
             
-            tracing::info!("Monitoring device. Push-to-talk: RightAlt, Shortcuts: Shift+RightAlt+O/L");
+            tracing::info!("Monitoring device. Push-to-talk key code: {}", key_code);
+            if let Some(ref shortcut) = output_mode_shortcut {
+                tracing::info!("Output mode shortcut configured");
+            }
+            if let Some(ref shortcut) = language_shortcut {
+                tracing::info!("Language shortcut configured");
+            }
             
             loop {
                 match device.fetch_events() {
@@ -182,42 +280,60 @@ impl EvdevMonitor {
                                             shift_pressed = false;
                                         }
                                     }
-                                    KEY_RIGHTALT => {
+                                    KEY_RIGHTALT | KEY_LEFTALT | KEY_RIGHTCTRL | KEY_LEFTCTRL => {
                                         if event_value == 1 {
-                                            right_alt_pressed = true;
-                                            // Only start recording if Shift is NOT pressed
-                                            if !shift_pressed && !is_recording {
+                                            modifier_pressed = Some(event_key_code);
+                                            // Only start recording if this is our push-to-talk key and Shift is NOT pressed
+                                            if event_key_code == key_code && !shift_pressed && !is_recording {
                                                 tracing::info!("Push-to-talk: start recording");
                                                 is_recording = true;
                                                 let _ = event_tx.try_send(StateEvent::StartRecording);
                                             }
                                         } else if event_value == 0 {
-                                            right_alt_pressed = false;
-                                            // Stop recording if we were recording
-                                            if is_recording {
+                                            if modifier_pressed == Some(event_key_code) {
+                                                modifier_pressed = None;
+                                            }
+                                            // Stop recording if we were recording and this is our push-to-talk key
+                                            if event_key_code == key_code && is_recording {
                                                 tracing::info!("Push-to-talk: stop recording");
                                                 is_recording = false;
                                                 let _ = event_tx.try_send(StateEvent::StopRecording);
                                             }
                                         }
                                     }
-                                    KEY_O => {
-                                        // Shift+RightAlt+O = toggle output mode
-                                        if event_value == 1 && shift_pressed && right_alt_pressed {
-                                            tracing::info!("Shortcut: Toggle output mode");
-                                            let _ = event_tx.try_send(StateEvent::ToggleOutputMode);
-                                        }
-                                    }
-                                    KEY_L => {
-                                        // Shift+RightAlt+L = toggle language
-                                        if event_value == 1 && shift_pressed && right_alt_pressed {
-                                            tracing::info!("Shortcut: Toggle language");
-                                            let _ = event_tx.try_send(StateEvent::ToggleLanguage);
-                                        }
-                                    }
                                     _ => {
-                                        // Other keys - check if it's our push-to-talk key (if not RightAlt)
-                                        if event_key_code == key_code && key_code != KEY_RIGHTALT {
+                                        // Check for output mode shortcut
+                                        if let Some(ref shortcut) = output_mode_shortcut {
+                                            if event_key_code == shortcut.main_key_code && event_value == 1 {
+                                                let shift_ok = !shortcut.needs_shift || shift_pressed;
+                                                let modifier_ok = shortcut.modifier_key_code.is_none() || 
+                                                    modifier_pressed == shortcut.modifier_key_code;
+                                                if shift_ok && modifier_ok {
+                                                    tracing::info!("Shortcut: Toggle output mode");
+                                                    let _ = event_tx.try_send(StateEvent::ToggleOutputMode);
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Check for language shortcut
+                                        if let Some(ref shortcut) = language_shortcut {
+                                            if event_key_code == shortcut.main_key_code && event_value == 1 {
+                                                let shift_ok = !shortcut.needs_shift || shift_pressed;
+                                                let modifier_ok = shortcut.modifier_key_code.is_none() || 
+                                                    modifier_pressed == shortcut.modifier_key_code;
+                                                if shift_ok && modifier_ok {
+                                                    tracing::info!("Shortcut: Toggle language");
+                                                    let _ = event_tx.try_send(StateEvent::ToggleLanguage);
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Check if it's our push-to-talk key (for keys that aren't modifiers)
+                                        if event_key_code == key_code && 
+                                           key_code != KEY_RIGHTALT && 
+                                           key_code != KEY_LEFTALT &&
+                                           key_code != KEY_RIGHTCTRL &&
+                                           key_code != KEY_LEFTCTRL {
                                             if event_value == 1 && !is_recording {
                                                 tracing::info!("Push-to-talk key pressed (code {})", event_key_code);
                                                 is_recording = true;

@@ -2,6 +2,7 @@ use crate::daemon::state::DaemonState;
 use crate::overlay::OverlayMessage;
 use ksni::{self, Icon, ToolTip};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// System tray icon for croaker
 pub struct CroakerTray {
@@ -12,6 +13,8 @@ struct TrayState {
     daemon_state: DaemonState,
     output_mode: String,
     language: String,
+    temporary_message: Option<(String, Instant)>,
+    flash_until: Option<Instant>,
 }
 
 impl CroakerTray {
@@ -21,6 +24,8 @@ impl CroakerTray {
                 daemon_state: DaemonState::Idle,
                 output_mode: "Both".to_string(),
                 language: "en".to_string(),
+                temporary_message: None,
+                flash_until: None,
             })),
         }
     }
@@ -36,19 +41,47 @@ impl CroakerTray {
     }
     
     fn get_tooltip(&self) -> String {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        
+        // Clear expired temporary messages
+        if let Some((_, timestamp)) = state.temporary_message {
+            if timestamp.elapsed() > Duration::from_secs(3) {
+                state.temporary_message = None;
+            }
+        }
+        
         let status = match state.daemon_state {
             DaemonState::Idle => "Ready",
             DaemonState::Recording => "● Recording...",
             DaemonState::Processing => "Processing...",
             DaemonState::Outputting => "Outputting...",
         };
-        format!("Croaker: {}\nMode: {} | Lang: {}", 
-            status, state.output_mode, state.language.to_uppercase())
+        
+        // Show temporary message if present, otherwise show normal tooltip
+        if let Some((ref msg, _)) = state.temporary_message {
+            format!("{}\n\nCroaker: {}\nMode: {} | Lang: {}", 
+                msg, status, state.output_mode, state.language.to_uppercase())
+        } else {
+            format!("Croaker: {}\nMode: {} | Lang: {}", 
+                status, state.output_mode, state.language.to_uppercase())
+        }
+    }
+    
+    fn show_temporary_message(state: &Arc<Mutex<TrayState>>, message: String) {
+        let mut tray_state = state.lock().unwrap();
+        tray_state.temporary_message = Some((message, Instant::now()));
     }
     
     fn get_color(&self) -> (u8, u8, u8) {
         let state = self.state.lock().unwrap();
+        
+        // Flash bright blue when mode changes
+        if let Some(flash_time) = state.flash_until {
+            if flash_time.elapsed() < Duration::from_millis(500) {
+                return (100, 150, 255); // Bright blue flash
+            }
+        }
+        
         match state.daemon_state {
             DaemonState::Idle => (128, 128, 128),      // Grey
             DaemonState::Recording => (255, 60, 60),   // Red
@@ -166,25 +199,98 @@ pub fn run_tray(message_rx: std::sync::mpsc::Receiver<OverlayMessage>) -> anyhow
     
     tracing::info!("System tray started");
     
-    // Process messages
-    while let Ok(msg) = message_rx.recv() {
-        {
-            let mut tray_state = state.lock().unwrap();
-            match msg {
-                OverlayMessage::State(daemon_state) => {
-                    tray_state.daemon_state = daemon_state;
+    // Process messages with timeout to periodically check for expired temporary messages
+    loop {
+        // Check for messages with timeout to allow periodic updates
+        match message_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(msg) => {
+                {
+                    let mut tray_state = state.lock().unwrap();
+                    match msg {
+                        OverlayMessage::State(daemon_state) => {
+                            tray_state.daemon_state = daemon_state;
+                        }
+                        OverlayMessage::OutputMode(mode) => {
+                            tray_state.output_mode = mode.clone();
+                            // Show temporary message for mode change (in tooltip)
+                            tray_state.temporary_message = Some((format!("Output mode: {}", mode), Instant::now()));
+                            // Flash the icon to indicate change
+                            tray_state.flash_until = Some(Instant::now() + Duration::from_millis(500));
+                            // Show a brief notification that appears near the tray icon
+                            drop(tray_state);
+                            let _ = std::process::Command::new("notify-send")
+                                .args(&[
+                                    "--app-name=croaker",
+                                    "--urgency=low",
+                                    "--expire-time=2000",
+                                    "--hint=int:transient:1",
+                                    "--hint=string:x-croaker-tray:true",
+                                    "croaker",
+                                    &format!("Output mode: {}", mode)
+                                ])
+                                .spawn();
+                        }
+                        OverlayMessage::Language(lang) => {
+                            tray_state.language = lang.clone();
+                            // Show temporary message for language change (in tooltip)
+                            tray_state.temporary_message = Some((format!("Language: {}", lang.to_uppercase()), Instant::now()));
+                            // Flash the icon to indicate change
+                            tray_state.flash_until = Some(Instant::now() + Duration::from_millis(500));
+                            // Show a brief notification that appears near the tray icon
+                            drop(tray_state);
+                            let _ = std::process::Command::new("notify-send")
+                                .args(&[
+                                    "--app-name=croaker",
+                                    "--urgency=low",
+                                    "--expire-time=2000",
+                                    "--hint=int:transient:1",
+                                    "--hint=string:x-croaker-tray:true",
+                                    "croaker",
+                                    &format!("Language: {}", lang.to_uppercase())
+                                ])
+                                .spawn();
+                        }
+                        _ => {}
+                    }
                 }
-                OverlayMessage::OutputMode(mode) => {
-                    tray_state.output_mode = mode;
+                // Trigger tray icon update
+                handle.update(|_| {});
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Check for expired messages/flash and update if needed
+                let needs_update = {
+                    let mut tray_state = state.lock().unwrap();
+                    let mut updated = false;
+                    
+                    // Clear expired temporary message
+                    if let Some((_, timestamp)) = tray_state.temporary_message {
+                        if timestamp.elapsed() > Duration::from_secs(3) {
+                            tray_state.temporary_message = None;
+                            updated = true;
+                        }
+                    }
+                    
+                    // Clear expired flash
+                    if let Some(flash_time) = tray_state.flash_until {
+                        if flash_time.elapsed() >= Duration::from_millis(500) {
+                            tray_state.flash_until = None;
+                            updated = true;
+                        } else {
+                            // Still flashing, need to update to show flash
+                            updated = true;
+                        }
+                    }
+                    
+                    updated
+                };
+                if needs_update {
+                    handle.update(|_| {});
                 }
-                OverlayMessage::Language(lang) => {
-                    tray_state.language = lang;
-                }
-                _ => {}
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                break;
             }
         }
-        // Trigger tray icon update
-        handle.update(|_| {});
     }
     
     Ok(())
