@@ -58,12 +58,14 @@ mkdir -p ~/.config/systemd/user
 cat > ~/.config/systemd/user/croaker.service << EOF
 [Unit]
 Description=croaker speech-to-text daemon
-After=graphical-session.target
+After=graphical-session.target sound.target
 
 [Service]
 Type=simple
-ExecStart=$(pwd)/target/release/croaker serve
+ExecStart=/usr/local/bin/croaker serve
 Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=info
 
 [Install]
 WantedBy=default.target

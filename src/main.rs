@@ -103,8 +103,19 @@ fn serve() -> anyhow::Result<()> {
     // Run tray/overlay on main thread
     if overlay_enabled && (backend == "tray" || backend == "auto") {
         tracing::info!("Starting system tray");
-        if let Err(e) = overlay::run_tray(overlay_rx) {
-            tracing::error!("Tray error: {}", e);
+        match overlay::run_tray(overlay_rx) {
+            Ok(_) => {
+                tracing::info!("Tray exited normally");
+            }
+            Err(e) => {
+                tracing::error!("Tray error: {}", e);
+                tracing::warn!("Continuing without tray - daemon will still work, just without visual feedback");
+                // Continue running without tray - daemon functionality still works
+                // Block main thread forever to keep process alive
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                }
+            }
         }
     } else if overlay_enabled && backend == "notification" {
         // For notification backend, process messages in a loop

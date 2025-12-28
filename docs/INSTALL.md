@@ -90,6 +90,9 @@ Environment=RUST_LOG=info
 [Install]
 WantedBy=default.target
 EOF
+
+# Note: Make sure the binary is installed at /usr/local/bin/croaker
+# If you're using a different path, update ExecStart accordingly
 ```
 
 Enable and start the service:
