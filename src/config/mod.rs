@@ -135,6 +135,8 @@ pub struct GroqConfig {
     pub cleanup_model: String,
     #[serde(default = "default_cleanup_prompt_file")]
     pub cleanup_prompt_file: String,
+    #[serde(default = "default_cleanup_temperature")]
+    pub cleanup_temperature: f64,
 }
 
 fn default_key_file() -> String {
@@ -146,11 +148,15 @@ fn default_whisper_model() -> String {
 }
 
 fn default_cleanup_model() -> String {
-    "llama-3.3-70b-versatile".to_string()
+    "openai/gpt-oss-120b".to_string()
 }
 
 fn default_cleanup_prompt_file() -> String {
     "~/.config/croaker/prompts/default.txt".to_string()
+}
+
+fn default_cleanup_temperature() -> f64 {
+    0.0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -263,6 +269,7 @@ impl Default for GroqConfig {
             cleanup_enabled: default_true(),
             cleanup_model: default_cleanup_model(),
             cleanup_prompt_file: default_cleanup_prompt_file(),
+            cleanup_temperature: default_cleanup_temperature(),
         }
     }
 }
@@ -362,11 +369,14 @@ whisper_model = "whisper-large-v3-turbo"
 # Enable LLM cleanup of transcription
 cleanup_enabled = true
 # LLM model for text cleanup (use any Groq-supported model slug)
-# Examples: llama-3.3-70b-versatile, llama-3.1-8b-instant, openai/gpt-oss-20b, etc.
+# Examples: llama-3.3-70b-versatile, llama-3.1-8b-instant, openai/gpt-oss-20b, openai/gpt-oss-120b, etc.
 # Check https://console.groq.com/docs/models for available models
-cleanup_model = "llama-3.3-70b-versatile"
+cleanup_model = "openai/gpt-oss-120b"
 # Path to cleanup prompt file
 cleanup_prompt_file = "~/.config/croaker/prompts/default.txt"
+# Temperature for cleanup model (0.0 = deterministic, higher = more creative)
+# Lower values (0.0-0.3) are recommended for transcription cleanup
+cleanup_temperature = 0.0
 
 [output]
 # Delay between keystrokes in milliseconds (for uinput typing)

@@ -19,6 +19,8 @@ pub enum CleanupError {
 struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,6 +89,7 @@ impl CleanupClient {
                     content: text.to_string(),
                 },
             ],
+            temperature: Some(self.config.groq.cleanup_temperature),
         };
 
         let response = self
