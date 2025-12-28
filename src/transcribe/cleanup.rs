@@ -2,6 +2,7 @@ use crate::config::Config;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::time::{timeout, Duration};
 
 #[derive(Debug, Error)]
 pub enum CleanupError {
@@ -55,7 +56,7 @@ pub struct CleanupClient {
 impl CleanupClient {
     pub fn new(config: Config, api_key: String) -> Result<Self, CleanupError> {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(120)) // Increased timeout, but wrapper timeout will catch it first
             .build()
             .expect("Failed to create HTTP client");
         
@@ -92,37 +93,59 @@ impl CleanupClient {
             temperature: Some(self.config.groq.cleanup_temperature),
         };
 
-        let response = self
-            .client
-            .post("https://api.groq.com/openai/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await?;
-
-        // Check status
-        let status = response.status();
-        if !status.is_success() {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(CleanupError::ApiError(format!(
-                "HTTP {}: {}",
-                status,
-                error_text
-            )));
-        }
-
-        // Parse response
-        let chat_response: ChatResponse = response.json().await?;
+        // Wrap the API call in a timeout to prevent hanging
+        let cleanup_timeout = Duration::from_secs(90); // 90 seconds total timeout
         
-        let cleaned_text = chat_response
-            .choices
-            .first()
-            .and_then(|c| Some(c.message.content.clone()))
-            .ok_or(CleanupError::InvalidResponse)?;
+        let result = timeout(cleanup_timeout, async {
+            let response = self
+                .client
+                .post("https://api.groq.com/openai/v1/chat/completions")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .send()
+                .await?;
 
-        tracing::info!("Cleanup completed: {} chars", cleaned_text.len());
-        Ok(cleaned_text.trim().to_string())
+            // Check status
+            let status = response.status();
+            if !status.is_success() {
+                let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                return Err(CleanupError::ApiError(format!(
+                    "HTTP {}: {}",
+                    status,
+                    error_text
+                )));
+            }
+
+            // Parse response
+            let chat_response: ChatResponse = response.json().await?;
+            
+            let cleaned_text = chat_response
+                .choices
+                .first()
+                .and_then(|c| Some(c.message.content.clone()))
+                .ok_or(CleanupError::InvalidResponse)?;
+
+            Ok(cleaned_text.trim().to_string())
+        }).await;
+
+        match result {
+            Ok(Ok(text)) => {
+                tracing::info!("Cleanup completed: {} chars", text.len());
+                Ok(text)
+            }
+            Ok(Err(e)) => {
+                tracing::error!("Cleanup API error: {}", e);
+                Err(e)
+            }
+            Err(_) => {
+                tracing::error!("Cleanup request timed out after {} seconds", cleanup_timeout.as_secs());
+                Err(CleanupError::ApiError(format!(
+                    "Request timed out after {} seconds",
+                    cleanup_timeout.as_secs()
+                )))
+            }
+        }
     }
 }
 
