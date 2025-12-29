@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::daemon::state::StateEvent;
-use evdev::Device;
+use evdev::{Device, Key};
 use std::path::Path;
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -42,14 +42,29 @@ impl EvdevMonitor {
         let test_device = Device::open(&device_path)?;
         tracing::info!("Successfully verified device: {:?}", device_path);
         
-        // Check if device supports key events
+        // Check if device supports key events and log key codes for debugging
         if let Some(keys) = test_device.supported_keys() {
             tracing::info!("Device supports {} key codes", keys.iter().count());
-            // Check for RightAlt specifically
-            if keys.contains(evdev::Key::KEY_RIGHTALT) {
-                tracing::info!("✅ Device supports KEY_RIGHTALT");
-            } else {
-                tracing::warn!("⚠️  Device does NOT report KEY_RIGHTALT support (but may still work)");
+            
+            // Diagnostic: Check key codes for all shortcuts
+            let key_map = [
+                ("RightCtrl", Key::KEY_RIGHTCTRL),
+                ("LeftCtrl", Key::KEY_LEFTCTRL),
+                ("RightAlt", Key::KEY_RIGHTALT),
+                ("LeftAlt", Key::KEY_LEFTALT),
+                ("RightShift", Key::KEY_RIGHTSHIFT),
+                ("LeftShift", Key::KEY_LEFTSHIFT),
+                ("O", Key::KEY_O),
+                ("L", Key::KEY_L),
+            ];
+            
+            tracing::info!("Keyboard key code diagnostics:");
+            for (name, key) in key_map.iter() {
+                if keys.contains(*key) {
+                    tracing::info!("  ✅ {}: code {}", name, key.code());
+                } else {
+                    tracing::warn!("  ⚠️  {}: NOT SUPPORTED (expected code {})", name, key.code());
+                }
             }
         }
 
@@ -148,18 +163,19 @@ impl EvdevMonitor {
     }
 
     fn parse_key_name(name: &str) -> Result<u16, EvdevError> {
-        // Map common key names to evdev key codes
-        // Note: RightAlt can be either 100 or 108 depending on kernel version
-        // We'll check both codes when monitoring
-        match name.to_lowercase().as_str() {
-            "rightalt" | "alt_r" => Ok(100), // KEY_RIGHTALT is 100
-            "leftalt" | "alt_l" => Ok(56),  // KEY_LEFTALT
-            "rightctrl" | "ctrl_r" => Ok(97), // KEY_RIGHTCTRL
-            "leftctrl" | "ctrl_l" => Ok(29), // KEY_LEFTCTRL
-            "rightshift" | "shift_r" => Ok(54), // KEY_RIGHTSHIFT
-            "leftshift" | "shift_l" => Ok(42), // KEY_LEFTSHIFT
-            _ => Err(EvdevError::ParseKeyError(format!("Unknown key: {}", name))),
-        }
+        // Use evdev::Key enum to get the correct code for this system
+        let key = match name.to_lowercase().as_str() {
+            "rightalt" | "alt_r" => Key::KEY_RIGHTALT,
+            "leftalt" | "alt_l" => Key::KEY_LEFTALT,
+            "rightctrl" | "ctrl_r" => Key::KEY_RIGHTCTRL,
+            "leftctrl" | "ctrl_l" => Key::KEY_LEFTCTRL,
+            "rightshift" | "shift_r" => Key::KEY_RIGHTSHIFT,
+            "leftshift" | "shift_l" => Key::KEY_LEFTSHIFT,
+            _ => return Err(EvdevError::ParseKeyError(format!("Unknown key: {}", name))),
+        };
+        let code = key.code();
+        tracing::debug!("Parsed key '{}' to code {}", name, code);
+        Ok(code)
     }
 
     fn parse_shortcut(shortcut_str: &str) -> Result<Option<ParsedShortcut>, EvdevError> {
@@ -183,29 +199,59 @@ impl EvdevMonitor {
                     needs_shift = true;
                 }
                 "rightalt" | "alt_r" => {
-                    modifier_key_code = Some(100); // KEY_RIGHTALT
+                    modifier_key_code = Some(Key::KEY_RIGHTALT.code());
                 }
                 "leftalt" | "alt_l" => {
-                    modifier_key_code = Some(56); // KEY_LEFTALT
+                    modifier_key_code = Some(Key::KEY_LEFTALT.code());
                 }
                 "rightctrl" | "ctrl_r" => {
-                    modifier_key_code = Some(97); // KEY_RIGHTCTRL
+                    modifier_key_code = Some(Key::KEY_RIGHTCTRL.code());
                 }
                 "leftctrl" | "ctrl_l" => {
-                    modifier_key_code = Some(29); // KEY_LEFTCTRL
+                    modifier_key_code = Some(Key::KEY_LEFTCTRL.code());
                 }
                 "o" => {
-                    main_key_code = Some(24); // KEY_O
+                    main_key_code = Some(Key::KEY_O.code());
                 }
                 "l" => {
-                    main_key_code = Some(38); // KEY_L
+                    main_key_code = Some(Key::KEY_L.code());
                 }
                 _ => {
                     // Try to parse as a single character key
                     if part.len() == 1 {
                         let ch = part.chars().next().unwrap().to_ascii_lowercase();
                         if ch.is_ascii_alphabetic() {
-                            main_key_code = Some(30 + (ch as u16 - b'a' as u16)); // KEY_A = 30
+                            // Use evdev::Key enum for letter keys
+                            let key = match ch {
+                                'a' => Key::KEY_A,
+                                'b' => Key::KEY_B,
+                                'c' => Key::KEY_C,
+                                'd' => Key::KEY_D,
+                                'e' => Key::KEY_E,
+                                'f' => Key::KEY_F,
+                                'g' => Key::KEY_G,
+                                'h' => Key::KEY_H,
+                                'i' => Key::KEY_I,
+                                'j' => Key::KEY_J,
+                                'k' => Key::KEY_K,
+                                'l' => Key::KEY_L,
+                                'm' => Key::KEY_M,
+                                'n' => Key::KEY_N,
+                                'o' => Key::KEY_O,
+                                'p' => Key::KEY_P,
+                                'q' => Key::KEY_Q,
+                                'r' => Key::KEY_R,
+                                's' => Key::KEY_S,
+                                't' => Key::KEY_T,
+                                'u' => Key::KEY_U,
+                                'v' => Key::KEY_V,
+                                'w' => Key::KEY_W,
+                                'x' => Key::KEY_X,
+                                'y' => Key::KEY_Y,
+                                'z' => Key::KEY_Z,
+                                _ => return Err(EvdevError::ParseShortcutError(format!("Unknown key in shortcut: {}", part))),
+                            };
+                            main_key_code = Some(key.code());
                         } else {
                             return Err(EvdevError::ParseShortcutError(format!("Unknown key in shortcut: {}", part)));
                         }
@@ -247,20 +293,24 @@ impl EvdevMonitor {
             let mut shift_pressed = false;
             let mut modifier_pressed: Option<u16> = None; // Track which modifier is pressed (RightAlt, LeftAlt, RightCtrl, etc.)
             
-            // Key codes for modifiers
-            const KEY_LEFTSHIFT: u16 = 42;
-            const KEY_RIGHTSHIFT: u16 = 54;
-            const KEY_RIGHTALT: u16 = 100;
-            const KEY_LEFTALT: u16 = 56;
-            const KEY_RIGHTCTRL: u16 = 97;
-            const KEY_LEFTCTRL: u16 = 29;
+            // Use evdev::Key enum to get correct key codes for this system
+            let key_leftshift = Key::KEY_LEFTSHIFT.code();
+            let key_rightshift = Key::KEY_RIGHTSHIFT.code();
+            let key_rightalt = Key::KEY_RIGHTALT.code();
+            let key_leftalt = Key::KEY_LEFTALT.code();
+            let key_rightctrl = Key::KEY_RIGHTCTRL.code();
+            let key_leftctrl = Key::KEY_LEFTCTRL.code();
             
             tracing::info!("Monitoring device. Push-to-talk key code: {}", key_code);
+            tracing::info!("Modifier key codes - Shift: L={} R={}, Alt: L={} R={}, Ctrl: L={} R={}", 
+                key_leftshift, key_rightshift, key_leftalt, key_rightalt, key_leftctrl, key_rightctrl);
             if let Some(ref shortcut) = output_mode_shortcut {
-                tracing::info!("Output mode shortcut configured");
+                tracing::info!("Output mode shortcut configured - modifier code: {:?}, main key code: {}", 
+                    shortcut.modifier_key_code, shortcut.main_key_code);
             }
             if let Some(ref shortcut) = language_shortcut {
-                tracing::info!("Language shortcut configured");
+                tracing::info!("Language shortcut configured - modifier code: {:?}, main key code: {}", 
+                    shortcut.modifier_key_code, shortcut.main_key_code);
             }
             
             loop {
@@ -273,14 +323,15 @@ impl EvdevMonitor {
                                 
                                 // Track modifier states (1=press, 0=release, ignore 2=repeat)
                                 match event_key_code {
-                                    KEY_LEFTSHIFT | KEY_RIGHTSHIFT => {
+                                    code if code == key_leftshift || code == key_rightshift => {
                                         if event_value == 1 {
                                             shift_pressed = true;
                                         } else if event_value == 0 {
                                             shift_pressed = false;
                                         }
                                     }
-                                    KEY_RIGHTALT | KEY_LEFTALT | KEY_RIGHTCTRL | KEY_LEFTCTRL => {
+                                    code if code == key_rightalt || code == key_leftalt || 
+                                           code == key_rightctrl || code == key_leftctrl => {
                                         if event_value == 1 {
                                             modifier_pressed = Some(event_key_code);
                                             // Only start recording if this is our push-to-talk key and Shift is NOT pressed
@@ -330,10 +381,10 @@ impl EvdevMonitor {
                                         
                                         // Check if it's our push-to-talk key (for keys that aren't modifiers)
                                         if event_key_code == key_code && 
-                                           key_code != KEY_RIGHTALT && 
-                                           key_code != KEY_LEFTALT &&
-                                           key_code != KEY_RIGHTCTRL &&
-                                           key_code != KEY_LEFTCTRL {
+                                           key_code != key_rightalt && 
+                                           key_code != key_leftalt &&
+                                           key_code != key_rightctrl &&
+                                           key_code != key_leftctrl {
                                             if event_value == 1 && !is_recording {
                                                 tracing::info!("Push-to-talk key pressed (code {})", event_key_code);
                                                 is_recording = true;
