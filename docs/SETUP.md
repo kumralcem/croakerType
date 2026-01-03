@@ -15,6 +15,21 @@ sudo apt install pipewire-utils wl-clipboard
 sudo pacman -S pipewire-utils wl-clipboard
 ```
 
+### Optional Debugging Tools
+
+If you need to debug hotkeys / key codes, install `evtest`:
+
+```bash
+# Fedora
+sudo dnf install evtest
+
+# Ubuntu/Debian
+sudo apt install evtest
+
+# Arch
+sudo pacman -S evtest
+```
+
 ### User Permissions
 
 Add your user to the `input` group (required for uinput and evdev):

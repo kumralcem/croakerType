@@ -15,6 +15,19 @@ sudo apt install pipewire-utils wl-clipboard
 sudo pacman -S pipewire-utils wl-clipboard
 ```
 
+**Optional (recommended for debugging hotkeys):** install `evtest`:
+
+```bash
+# Fedora
+sudo dnf install evtest
+
+# Ubuntu/Debian
+sudo apt install evtest
+
+# Arch
+sudo pacman -S evtest
+```
+
 ### 2. Add User to Input Group
 
 ```bash
@@ -270,8 +283,10 @@ If you see `"Failed to start evdev monitor: No keyboard device found"` in the lo
 
 3. **Test Device Detection**:
    ```bash
-   # Install evtest if needed
-   sudo dnf install evtest
+   # Install evtest if needed (optional debugging tool)
+   # Fedora: sudo dnf install evtest
+   # Ubuntu/Debian: sudo apt install evtest
+   # Arch: sudo pacman -S evtest
 
    # List available input devices
    sudo evtest --list

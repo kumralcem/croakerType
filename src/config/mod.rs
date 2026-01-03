@@ -315,6 +315,62 @@ impl Config {
             .map_err(|e| ConfigError::ReadError(format!("Path expansion error: {}", e)))?;
         config.groq.cleanup_prompt_file = Self::expand_path(&config.groq.cleanup_prompt_file)
             .map_err(|e| ConfigError::ReadError(format!("Path expansion error: {}", e)))?;
+
+        // Validate whisper model: transcription endpoint only supports Whisper models.
+        // If user accidentally sets this to an LLM (e.g. openai/gpt-oss-120b), Groq returns HTTP 400.
+        // We fall back to the default Whisper model to keep croaker functional, and log a clear warning.
+        if !config.groq.whisper_model.to_lowercase().contains("whisper") {
+            tracing::warn!(
+                "Invalid whisper_model {:?} (does not look like a Whisper model). Falling back to {:?}. \
+                 Fix this in ~/.config/croaker/config.toml under [groq].",
+                config.groq.whisper_model,
+                default_whisper_model()
+            );
+            config.groq.whisper_model = default_whisper_model();
+        }
+        
+        // Create default prompt file if it doesn't exist
+        let default_prompt_path = Self::default_prompt_path()
+            .map_err(|e| ConfigError::ReadError(format!("Failed to get default prompt path: {}", e)))?;
+        if !default_prompt_path.exists() {
+            tracing::info!("Default prompt file not found at {:?}, creating it", default_prompt_path);
+            if let Some(parent) = default_prompt_path.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| ConfigError::ReadError(format!("Failed to create prompts directory: {}", e)))?;
+            }
+            // Try to read the default prompt from the project's config directory
+            // First try relative to current working directory, then try relative to executable
+            let prompt_content = std::env::current_dir()
+                .ok()
+                .and_then(|cwd| {
+                    let project_prompt = cwd.join("config").join("default_prompt.txt");
+                    if project_prompt.exists() {
+                        fs::read_to_string(&project_prompt).ok()
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| {
+                    // Try relative to executable location
+                    std::env::current_exe()
+                        .ok()
+                        .and_then(|exe_path| {
+                            exe_path.parent()
+                                .map(|p| p.join("config").join("default_prompt.txt"))
+                        })
+                        .and_then(|p| {
+                            if p.exists() {
+                                fs::read_to_string(&p).ok()
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .unwrap_or_else(|| Self::default_prompt_text());
+            fs::write(&default_prompt_path, prompt_content)
+                .map_err(|e| ConfigError::ReadError(format!("Failed to write default prompt file: {}", e)))?;
+            tracing::info!("Created default prompt file at {:?}", default_prompt_path);
+        }
         
         Ok(config)
     }
@@ -474,13 +530,8 @@ backend = "tray"
     }
 
     fn default_prompt_text() -> String {
-        "Clean up this speech-to-text transcription:
-- Fix punctuation and capitalization
-- Remove filler words (um, uh, like, you know)
-- Fix obvious transcription errors
-- Preserve meaning and tone
-
-Output only the cleaned text, nothing else.".to_string()
+        // Keep this in sync with `config/default_prompt.txt` (used when the prompt file can't be found).
+        include_str!("../../config/default_prompt.txt").to_string()
     }
 
     fn expand_path(path: &str) -> Result<String, std::io::Error> {

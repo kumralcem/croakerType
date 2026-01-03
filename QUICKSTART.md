@@ -108,7 +108,11 @@ Configure multiple languages and switch between them:
 - Check daemon is running: `croaker status`
 - Try push-to-talk mode if portal shortcuts don't work
 - **Keyboard device not found?** Run with debug logging: `RUST_LOG=debug croaker serve`
-- **Key not detected?** Use `sudo evtest` to verify your key codes
+- **Key not detected?** Use `evtest` to verify your key codes (optional install):
+  - Fedora: `sudo dnf install evtest`
+  - Ubuntu/Debian: `sudo apt install evtest`
+  - Arch: `sudo pacman -S evtest`
+  - Run: `sudo evtest --list` then `sudo evtest /dev/input/eventX`
 
 **No text appearing?**
 - Check API key is correct: `cat ~/.config/croaker/groq.key`
