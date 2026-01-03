@@ -53,6 +53,27 @@ pub struct CleanupClient {
     prompt: String,
 }
 
+fn strip_output_tags(s: &str) -> String {
+    // The default cleanup prompt asks the model to return ONLY:
+    // <output>cleaned text</output>
+    //
+    // We still defensively support responses that include extra whitespace or text
+    // around the tags by extracting the first <output>...</output> span.
+    let trimmed = s.trim();
+    let open = "<output>";
+    let close = "</output>";
+
+    if let Some(open_idx) = trimmed.find(open) {
+        let after_open = open_idx + open.len();
+        if let Some(close_rel) = trimmed[after_open..].find(close) {
+            let close_idx = after_open + close_rel;
+            return trimmed[after_open..close_idx].trim().to_string();
+        }
+    }
+
+    trimmed.to_string()
+}
+
 impl CleanupClient {
     pub fn new(config: Config, api_key: String) -> Result<Self, CleanupError> {
         let client = Client::builder()
@@ -126,7 +147,7 @@ impl CleanupClient {
                 .and_then(|c| Some(c.message.content.clone()))
                 .ok_or(CleanupError::InvalidResponse)?;
 
-            Ok(cleaned_text.trim().to_string())
+            Ok(strip_output_tags(&cleaned_text))
         }).await;
 
         match result {
@@ -149,3 +170,20 @@ impl CleanupClient {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::strip_output_tags;
+
+    #[test]
+    fn strip_output_tags_extracts_inner_text() {
+        assert_eq!(
+            strip_output_tags(" <output>Hello world.</output>\n"),
+            "Hello world."
+        );
+    }
+
+    #[test]
+    fn strip_output_tags_falls_back_when_missing() {
+        assert_eq!(strip_output_tags("Hello world."), "Hello world.");
+    }
+}
