@@ -19,15 +19,17 @@ struct TrayState {
 
 impl CroakerTray {
     pub fn new() -> Self {
-        Self {
-            state: Arc::new(Mutex::new(TrayState {
-                daemon_state: DaemonState::Idle,
-                output_mode: "Both".to_string(),
-                language: "en".to_string(),
-                temporary_message: None,
-                flash_until: None,
-            })),
-        }
+        Self::with_state(Arc::new(Mutex::new(TrayState {
+            daemon_state: DaemonState::Idle,
+            output_mode: "Both".to_string(),
+            language: "en".to_string(),
+            temporary_message: None,
+            flash_until: None,
+        })))
+    }
+
+    fn with_state(state: Arc<Mutex<TrayState>>) -> Self {
+        Self { state }
     }
     
     fn get_icon_name(&self) -> String {
@@ -190,17 +192,52 @@ impl ksni::Tray for CroakerTray {
 pub fn run_tray(message_rx: std::sync::mpsc::Receiver<OverlayMessage>) -> anyhow::Result<()> {
     use ksni::blocking::TrayMethods;
     
-    let tray = CroakerTray::new();
-    let state = Arc::clone(&tray.state);
-    
-    // Spawn tray service using blocking API
-    let handle = tray.spawn()
-        .map_err(|e| anyhow::anyhow!("Failed to spawn tray: {}", e))?;
-    
-    tracing::info!("System tray started");
+    // NOTE: When croaker is auto-started very early in a login session, the StatusNotifierWatcher
+    // (tray host) might not be available yet. If we try to spawn the tray once and give up, the
+    // daemon continues running but the user never sees the tray icon. We keep retrying until it
+    // succeeds, while still processing messages and sending mode-change notifications.
+    let state = Arc::new(Mutex::new(TrayState {
+        daemon_state: DaemonState::Idle,
+        output_mode: "Both".to_string(),
+        language: "en".to_string(),
+        temporary_message: None,
+        flash_until: None,
+    }));
+
+    let mut tray_handle = None;
+    let mut spawn_backoff = Duration::from_millis(200);
+    let mut last_spawn_attempt = Instant::now() - spawn_backoff;
+    let mut warned_missing_dbus = false;
     
     // Process messages with timeout to periodically check for expired temporary messages
     loop {
+        // Try to spawn (or re-spawn) the tray service if it's not up yet.
+        if tray_handle.is_none() && last_spawn_attempt.elapsed() >= spawn_backoff {
+            last_spawn_attempt = Instant::now();
+
+            if !warned_missing_dbus && std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
+                warned_missing_dbus = true;
+                tracing::warn!(
+                    "DBUS_SESSION_BUS_ADDRESS is not set; tray/notifications may not work if croaker was started outside your desktop session (use systemd --user or XDG autostart)"
+                );
+            }
+
+            let tray = CroakerTray::with_state(Arc::clone(&state));
+            match tray.spawn() {
+                Ok(handle) => {
+                    tracing::info!("System tray started");
+                    tray_handle = Some(handle);
+                    spawn_backoff = Duration::from_millis(200);
+                }
+                Err(e) => {
+                    // Common during early autostart: StatusNotifierWatcher isn't available yet.
+                    // Keep retrying with backoff.
+                    tracing::debug!("Tray not available yet (will retry): {}", e);
+                    spawn_backoff = spawn_backoff.saturating_mul(2).min(Duration::from_secs(5));
+                }
+            }
+        }
+
         // Check for messages with timeout to allow periodic updates
         match message_rx.recv_timeout(Duration::from_millis(100)) {
             Ok(msg) => {
@@ -254,7 +291,9 @@ pub fn run_tray(message_rx: std::sync::mpsc::Receiver<OverlayMessage>) -> anyhow
                     }
                 }
                 // Trigger tray icon update
-                handle.update(|_| {});
+                if let Some(handle) = tray_handle.as_ref() {
+                    handle.update(|_| {});
+                }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 // Check for expired messages/flash and update if needed
@@ -284,7 +323,9 @@ pub fn run_tray(message_rx: std::sync::mpsc::Receiver<OverlayMessage>) -> anyhow
                     updated
                 };
                 if needs_update {
-                    handle.update(|_| {});
+                    if let Some(handle) = tray_handle.as_ref() {
+                        handle.update(|_| {});
+                    }
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

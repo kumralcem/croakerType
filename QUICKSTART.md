@@ -52,10 +52,16 @@ The transcribed text will appear at your cursor!
 
 ## Auto-start on Login
 
+**Important**: Make sure you've completed steps 1-5 above (especially installing the binary to `/usr/local/bin/croaker`) before setting up auto-start.
+
+### Step 1: Create systemd user service
+
 ```bash
-# Create systemd service
+# Create the service directory if it doesn't exist
 mkdir -p ~/.config/systemd/user
-cat > ~/.config/systemd/user/croaker.service << EOF
+
+# Create the service file
+cat > ~/.config/systemd/user/croaker.service << 'EOF'
 [Unit]
 Description=croaker speech-to-text daemon
 After=graphical-session.target sound.target
@@ -66,15 +72,65 @@ ExecStart=/usr/local/bin/croaker serve
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=info
+# Ensure DBUS is available for tray/notifications
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus"
 
 [Install]
 WantedBy=default.target
 EOF
-
-# Enable and start
-systemctl --user enable croaker
-systemctl --user start croaker
 ```
+
+### Step 2: Enable and start the service
+
+```bash
+# Reload systemd to recognize the new service
+systemctl --user daemon-reload
+
+# Enable auto-start on login (creates symlink)
+systemctl --user enable croaker
+
+# Start the service now (don't wait for next login)
+systemctl --user start croaker
+
+# Verify it's running
+systemctl --user status croaker
+```
+
+### Step 3: Verify tray icon appears
+
+After starting the service, you should see a **grey microphone icon** in your system tray. If you don't see it:
+
+1. **Check the logs** for any errors:
+   ```bash
+   journalctl --user -u croaker -f
+   ```
+   You should see "System tray started" in the logs.
+
+2. **Wait a few seconds** - The tray icon may take a moment to appear if your desktop environment's tray service wasn't ready yet. The daemon will automatically retry connecting to the tray.
+
+3. **Verify the service is running**:
+   ```bash
+   systemctl --user is-active croaker
+   ```
+   Should output: `active`
+
+### Troubleshooting Auto-start
+
+**Service won't start?**
+- Make sure the binary exists: `ls -l /usr/local/bin/croaker`
+- Check logs: `journalctl --user -u croaker -n 50`
+- Verify you're using `--user` (not `sudo systemctl`)
+
+**Tray icon doesn't appear?**
+- The daemon includes retry logic - it will keep trying to connect to the tray even if started early in the login sequence
+- Check logs: `journalctl --user -u croaker | grep -i tray`
+- Make sure your desktop environment supports system tray (StatusNotifierItem protocol)
+- The daemon will continue running even if the tray fails - you can still use hotkeys, just without visual feedback
+
+**Service not starting on login?**
+- Verify it's enabled: `systemctl --user is-enabled croaker` (should output: `enabled`)
+- Check if systemd user services are running: `systemctl --user status`
+- Some desktop environments require `loginctl enable-linger $USER` for user services to start on login
 
 ## Configuration
 

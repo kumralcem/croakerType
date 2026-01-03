@@ -99,6 +99,8 @@ ExecStart=/usr/local/bin/croaker serve
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=info
+# Ensure DBUS is available for tray/notifications
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus"
 
 [Install]
 WantedBy=default.target
@@ -123,6 +125,15 @@ systemctl --user start croaker
 # Check status
 systemctl --user status croaker
 ```
+
+**Verify the tray icon appears:**
+
+After starting the service, you should see a **grey microphone icon** in your system tray. The daemon includes retry logic - if the tray service isn't ready yet when croaker starts, it will automatically retry connecting until it succeeds. The tray icon should appear within a few seconds.
+
+If the tray icon doesn't appear:
+- Check logs: `journalctl --user -u croaker | grep -i tray`
+- Verify service is running: `systemctl --user is-active croaker`
+- The daemon will continue running even if the tray fails - you can still use hotkeys, just without visual feedback
 
 ### Desktop Environment Integration
 
@@ -256,11 +267,37 @@ For older compositors, use push-to-talk mode instead.
 
 ### Visual feedback not showing
 
-If the system tray icon isn't appearing, you can configure the overlay backend in `~/.config/croaker/config.toml`:
-- `"tray"` (default): System tray icon that changes color based on state (grey=idle, red=recording, orange=processing, green=done)
-- `"notification"`: Desktop notifications
+If the system tray icon isn't appearing:
 
-Note: Make sure your desktop environment supports the StatusNotifierItem protocol (most modern DEs like KDE, GNOME with extensions, XFCE do).
+1. **Check if service is running**: `systemctl --user is-active croaker`
+2. **Check logs**: `journalctl --user -u croaker | grep -i tray`
+   - You should see "System tray started" if the tray connected successfully
+   - If you see errors, the daemon will automatically retry connecting to the tray
+3. **Wait a few seconds** - If croaker started early in the login sequence, the tray service might not be ready yet. The daemon includes retry logic and will connect automatically once the tray is available.
+4. **Configure overlay backend** in `~/.config/croaker/config.toml`:
+   - `"tray"` (default): System tray icon that changes color based on state (grey=idle, red=recording, orange=processing, green=done)
+   - `"notification"`: Desktop notifications
+
+Note: Make sure your desktop environment supports the StatusNotifierItem protocol (most modern DEs like KDE, GNOME with extensions, XFCE do). The daemon will continue running even if the tray fails - you can still use hotkeys, just without visual feedback.
+
+### Auto-start issues
+
+**Service won't start on login?**
+- Verify it's enabled: `systemctl --user is-enabled croaker` (should output: `enabled`)
+- Check if systemd user services are running: `systemctl --user status`
+- Some desktop environments require `loginctl enable-linger $USER` for user services to start on login
+- Check logs: `journalctl --user -u croaker -n 50`
+
+**Service won't start at all?**
+- Make sure the binary exists: `ls -l /usr/local/bin/croaker`
+- Verify you're using `--user` (not `sudo systemctl`)
+- Check logs: `journalctl --user -u croaker -n 50`
+
+**Tray icon doesn't appear after auto-start?**
+- The daemon includes retry logic - it will keep trying to connect to the tray even if started early in the login sequence
+- Check logs: `journalctl --user -u croaker | grep -i tray`
+- The tray icon should appear within a few seconds of login
+- The daemon will continue running even if the tray fails - you can still use hotkeys
 
 ### Keyboard Device Detection Issues
 

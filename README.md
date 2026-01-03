@@ -122,11 +122,56 @@ chmod 600 ~/.config/croaker/groq.key
 
 ## Usage
 
-### Start daemon
+### Start daemon manually
 
 ```bash
 croaker serve
 ```
+
+### Auto-start on Login (Recommended)
+
+To have croaker start automatically when you log in:
+
+**Step 1: Install the binary system-wide** (if you haven't already)
+```bash
+sudo cp target/release/croaker /usr/local/bin/
+```
+
+**Step 2: Create systemd user service**
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/croaker.service << 'EOF'
+[Unit]
+Description=croaker speech-to-text daemon
+After=graphical-session.target sound.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/croaker serve
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=info
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus"
+
+[Install]
+WantedBy=default.target
+EOF
+```
+
+**Step 3: Enable and start**
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now croaker
+```
+
+**Step 4: Verify**
+- Check service status: `systemctl --user status croaker`
+- Look for tray icon: You should see a grey microphone icon in your system tray
+- Check logs: `journalctl --user -u croaker -f`
+
+**Note**: The daemon includes retry logic for the system tray - if started early in the login sequence, it will automatically retry connecting to the tray until it succeeds. The tray icon should appear within a few seconds of login.
+
+See [QUICKSTART.md](QUICKSTART.md) for detailed troubleshooting.
 
 ### Control daemon
 
