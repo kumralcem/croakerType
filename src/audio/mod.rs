@@ -54,13 +54,21 @@ impl AudioRecorder {
         // Note: --target=auto (default) will auto-select the default recording source
         // Remove --target=0 as that means "don't link" and won't record anything!
         let mut cmd = Command::new("pw-record");
-        cmd.arg("--format=s16")
+        cmd.arg(format!("--format={}", self.config.audio.format))
             .arg(&format!("--rate={}", self.config.audio.sample_rate))
             .arg("--channels=1")
-            .arg(wav_path.to_string_lossy().as_ref())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped()); // Capture stderr for debugging
+
+        // Respect configured input device/source when provided.
+        if !self.config.audio.device.trim().is_empty()
+            && self.config.audio.device != "default"
+        {
+            cmd.arg("--target").arg(self.config.audio.device.trim());
+        }
+
+        cmd.arg(wav_path.to_string_lossy().as_ref());
 
         tracing::debug!("Starting pw-record: {:?}", cmd);
 

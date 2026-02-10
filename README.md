@@ -128,6 +128,18 @@ chmod 600 ~/.config/croaker/groq.key
 croaker serve
 ```
 
+### Start daemon in debug mode
+
+```bash
+croaker --debug serve
+```
+
+If you want to control log level manually, you can also use:
+
+```bash
+RUST_LOG=debug croaker serve
+```
+
 ### Auto-start on Login (Recommended)
 
 To have croaker start automatically when you log in:

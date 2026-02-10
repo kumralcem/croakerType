@@ -13,11 +13,16 @@ use input::{evdev::EvdevMonitor, portal::PortalMonitor, socket::SocketServer};
 use overlay::create_overlay;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tokio::time::{sleep, Duration};
 
 #[derive(Parser)]
 #[command(name = "croaker")]
 #[command(about = "Speech-to-text daemon for Linux/Wayland")]
 struct Cli {
+    /// Enable debug logging
+    #[arg(long, global = true)]
+    debug: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -41,11 +46,17 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
-
     let cli = Cli::parse();
+
+    let env_filter = if cli.debug {
+        tracing_subscriber::EnvFilter::new("debug")
+    } else {
+        tracing_subscriber::EnvFilter::from_default_env()
+    };
+
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .init();
 
     match cli.command {
         Commands::Serve => {
@@ -207,17 +218,27 @@ async fn run_daemon(config: Config, overlay_tx: std::sync::mpsc::Sender<crate::o
         let event_tx_evdev = event_tx.clone();
         let config_evdev = config.clone();
         tokio::spawn(async move {
-            match EvdevMonitor::new(&config_evdev, event_tx_evdev) {
-                Ok(mut monitor) => {
-                    tracing::info!("Starting evdev push-to-talk monitor");
-                    if let Err(e) = monitor.monitor().await {
-                        tracing::error!("evdev monitor error: {}", e);
+            loop {
+                match EvdevMonitor::new(&config_evdev, event_tx_evdev.clone()) {
+                    Ok(mut monitor) => {
+                        tracing::info!("Starting evdev push-to-talk monitor");
+                        if let Err(e) = monitor.monitor().await {
+                            tracing::warn!(
+                                "evdev monitor stopped: {}. Retrying in 5 seconds...",
+                                e
+                            );
+                        } else {
+                            tracing::warn!("evdev monitor ended unexpectedly. Retrying in 5 seconds...");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to start evdev monitor: {}. Retrying in 5 seconds...",
+                            e
+                        );
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to start evdev monitor: {}", e);
-                    tracing::warn!("Make sure you're in the 'input' group and have keyboard access");
-                }
+                sleep(Duration::from_secs(5)).await;
             }
         });
     }
@@ -227,16 +248,27 @@ async fn run_daemon(config: Config, overlay_tx: std::sync::mpsc::Sender<crate::o
         let event_tx_portal = event_tx.clone();
         let config_portal = config.clone();
         tokio::spawn(async move {
-            match PortalMonitor::new(&config_portal, event_tx_portal).await {
-                Ok(mut monitor) => {
-                    tracing::info!("Starting portal shortcuts monitor");
-                    if let Err(e) = monitor.register_shortcuts().await {
-                        tracing::warn!("Portal monitor error: {} (portal shortcuts disabled, push-to-talk still works)", e);
+            loop {
+                match PortalMonitor::new(&config_portal, event_tx_portal.clone()).await {
+                    Ok(mut monitor) => {
+                        tracing::info!("Starting portal shortcuts monitor");
+                        if let Err(e) = monitor.register_shortcuts().await {
+                            tracing::warn!(
+                                "Portal monitor error: {}. Retrying in 5 seconds...",
+                                e
+                            );
+                        } else {
+                            tracing::warn!("Portal monitor ended unexpectedly. Retrying in 5 seconds...");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to start portal monitor: {}. Retrying in 5 seconds...",
+                            e
+                        );
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to start portal monitor: {}", e);
-                }
+                sleep(Duration::from_secs(5)).await;
             }
         });
     }
